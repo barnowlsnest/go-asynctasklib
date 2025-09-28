@@ -186,6 +186,10 @@ func (t *Task) Cancel() {
 	t.state.Store(CANCELED)
 }
 
+func (t *Task) State() uint32 {
+	return t.state.Load()
+}
+
 func (t *Task) IsCreated() bool {
 	return t.state.Load() == CREATED
 }
