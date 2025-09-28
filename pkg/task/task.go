@@ -75,7 +75,6 @@ func (t *Task) run(ctx context.Context) error {
 		t.state.Store(CANCELED)
 		return errors.Join(ErrCancelledTask, ctx.Err())
 	case <-time.After(t.timeout):
-		// Check if context was cancelled during timeout wait
 		select {
 		case <-ctx.Done():
 			t.state.Store(CANCELED)
