@@ -7,8 +7,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-	
-	"github.com/google/uuid"
 )
 
 const (
@@ -24,7 +22,7 @@ const (
 
 type (
 	Run struct {
-		ID      func() uuid.UUID
+		ID      func() string
 		Context func() context.Context
 		Cancel  context.CancelFunc
 	}
@@ -32,6 +30,7 @@ type (
 	Definition struct {
 		Delay       time.Duration
 		MaxDuration time.Duration
+		ID          string
 		MaxRetries  int
 		TaskFn      func(*Run) error
 	}
@@ -39,7 +38,7 @@ type (
 	Task struct {
 		timeout    time.Duration
 		delay      time.Duration
-		id         uuid.UUID
+		id         string
 		err        error
 		maxRetries int
 		state      atomic.Uint32
@@ -52,7 +51,7 @@ type (
 
 func New(d Definition) *Task {
 	t := &Task{
-		id:         uuid.New(),
+		id:         d.ID,
 		cancel:     func() {},
 		fn:         func(*Run) error { return ErrTaskFnNotSet },
 		timeout:    defaultTimeout,
@@ -114,7 +113,7 @@ func (t *Task) delegateFn(ctx context.Context) <-chan error {
 		default:
 			run := &Run{
 				Cancel:  t.cancel,
-				ID:      func() uuid.UUID { return t.id },
+				ID:      func() string { return t.id },
 				Context: func() context.Context { return ctx },
 			}
 			if err := t.fn(run); err != nil {
@@ -164,7 +163,6 @@ func (t *Task) GoRetry(ctx context.Context) error {
 		t.state.Store(FAILED)
 		return ErrMaxRetriesNotSet
 	}
-	
 	var a int
 attempt:
 	if a >= t.maxRetries {
@@ -232,6 +230,6 @@ func (t *Task) Await() {
 	t.wait.Wait()
 }
 
-func (t *Task) ID() uuid.UUID {
+func (t *Task) ID() string {
 	return t.id
 }

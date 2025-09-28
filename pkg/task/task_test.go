@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 	
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -93,7 +92,7 @@ func (s *TaskTestSuite) TestNew() {
 	testCases := []definitionTestCase{
 		{
 			name:               "default definition - no task function",
-			definition:         Definition{},
+			definition:         Definition{ID: "test-default"},
 			expectedTimeout:    defaultTimeout,
 			expectedDelay:      0,
 			expectedMaxRetries: 0,
@@ -104,6 +103,7 @@ func (s *TaskTestSuite) TestNew() {
 		{
 			name: "custom timeout only - no task function",
 			definition: Definition{
+				ID:          "test-timeout",
 				MaxDuration: time.Second * 5,
 			},
 			expectedTimeout:    time.Second * 5,
@@ -116,6 +116,7 @@ func (s *TaskTestSuite) TestNew() {
 		{
 			name: "custom function only",
 			definition: Definition{
+				ID:     "test-function",
 				TaskFn: func(r *Run) error { return nil },
 			},
 			expectedTimeout:    defaultTimeout,
@@ -127,6 +128,7 @@ func (s *TaskTestSuite) TestNew() {
 		{
 			name: "full definition",
 			definition: Definition{
+				ID:          "test-full",
 				MaxDuration: time.Second * 10,
 				TaskFn:      func(r *Run) error { return nil },
 				Delay:       time.Millisecond * 100,
@@ -141,6 +143,7 @@ func (s *TaskTestSuite) TestNew() {
 		{
 			name: "zero timeout uses default",
 			definition: Definition{
+				ID:          "test-zero-timeout",
 				MaxDuration: 0,
 				TaskFn:      func(r *Run) error { return nil },
 			},
@@ -153,6 +156,7 @@ func (s *TaskTestSuite) TestNew() {
 		{
 			name: "delay and retries without function",
 			definition: Definition{
+				ID:         "test-delay-retries",
 				Delay:      time.Millisecond * 50,
 				MaxRetries: 2,
 			},
@@ -168,7 +172,7 @@ func (s *TaskTestSuite) TestNew() {
 	for _, tc := range testCases {
 		s.Run(tc.name, func() {
 			task := New(tc.definition)
-			
+
 			s.True(task.IsCreated())
 			s.False(task.IsPending())
 			s.False(task.IsStarted())
@@ -180,7 +184,7 @@ func (s *TaskTestSuite) TestNew() {
 			s.Equal(tc.expectedTimeout, task.timeout)
 			s.Equal(tc.expectedDelay, task.delay)
 			s.Equal(tc.expectedMaxRetries, task.maxRetries)
-			s.NotEqual(uuid.Nil, task.ID())
+			s.Equal(tc.definition.ID, task.ID())
 			s.Nil(task.Err())
 			s.NotNil(task.fn)
 			
@@ -783,7 +787,7 @@ func (s *TaskTestSuite) TestTaskCancellation() {
 
 func (s *TaskTestSuite) TestRunInterface() {
 	s.Run("Run provides correct ID", func() {
-		var runID uuid.UUID
+		var runID string
 		task := New(Definition{
 			TaskFn: func(r *Run) error {
 				runID = r.ID()
@@ -854,7 +858,7 @@ func (s *TaskTestSuite) TestRunInterface() {
 	
 	s.Run("Run methods return consistent values", func() {
 		var (
-			id1, id2         uuid.UUID
+			id1, id2         string
 			ctx1, ctx2       context.Context
 			cancel1, cancel2 context.CancelFunc
 		)
@@ -956,10 +960,11 @@ func (s *TaskTestSuite) TestRaceConditions() {
 				
 				for i := 0; i < tc.numWorkers; i++ {
 					wg.Add(1)
-					go func() {
+					go func(workerID int) {
 						defer wg.Done()
 						for j := 0; j < tc.operations; j++ {
 							task := New(Definition{
+								ID: fmt.Sprintf("race-task-%d-%d", workerID, j),
 								TaskFn: func(r *Run) error {
 									return nil
 								},
@@ -970,13 +975,13 @@ func (s *TaskTestSuite) TestRaceConditions() {
 							tasks[idx] = task
 							atomic.AddInt64(&counter, 1)
 						}
-					}()
+					}(i)
 				}
 				
 				wg.Wait()
 				
 				// Verify all tasks are unique
-				ids := make(map[uuid.UUID]bool)
+				ids := make(map[string]bool)
 				for _, task := range tasks {
 					if task != nil {
 						id := task.ID()
@@ -1060,26 +1065,37 @@ func (s *TaskTestSuite) TestRaceConditions() {
 func (s *TaskTestSuite) TestEdgeCases() {
 	s.Run("task ID uniqueness under high load", func() {
 		numTasks := 1000
-		ids := make(map[uuid.UUID]bool)
+		ids := make(map[string]bool)
 		var mu sync.Mutex
-		
+
 		var wg sync.WaitGroup
 		for i := 0; i < numTasks; i++ {
 			wg.Add(1)
-			go func() {
+			go func(taskID int) {
 				defer wg.Done()
-				task := New(Definition{TaskFn: func(r *Run) error { return nil }})
+				task := New(Definition{
+					ID:     fmt.Sprintf("test-task-%d", taskID),
+					TaskFn: func(r *Run) error { return nil },
+				})
 				id := task.ID()
-				
+
 				mu.Lock()
 				s.False(ids[id], "Duplicate ID found: %v", id)
 				ids[id] = true
 				mu.Unlock()
-			}()
+			}(i)
 		}
-		
+
 		wg.Wait()
 		s.Equal(numTasks, len(ids))
+	})
+
+	s.Run("empty ID is handled correctly", func() {
+		task := New(Definition{
+			ID:     "",
+			TaskFn: func(r *Run) error { return nil },
+		})
+		s.Equal("", task.ID())
 	})
 	
 	s.Run("multiple Await calls are safe", func() {
