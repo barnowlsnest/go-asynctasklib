@@ -44,7 +44,7 @@ type (
 		maxRetries int
 		state      atomic.Uint32
 		wait       sync.WaitGroup
-		mu         sync.RWMutex
+		mu         sync.Mutex
 		fn         func(*Run) error
 		cancel     context.CancelFunc
 	}
@@ -75,15 +75,27 @@ func (t *Task) run(ctx context.Context) error {
 		t.state.Store(CANCELED)
 		return errors.Join(ErrCancelledTask, ctx.Err())
 	case <-time.After(t.timeout):
-		t.state.Store(FAILED)
-		return ErrTaskTimeout
+		// Check if context was cancelled during timeout wait
+		select {
+		case <-ctx.Done():
+			t.state.Store(CANCELED)
+			return errors.Join(ErrCancelledTask, ctx.Err())
+		default:
+			t.state.Store(FAILED)
+			return ErrTaskTimeout
+		}
 	case err := <-t.delegateFn(ctx):
-		if err != nil {
+		switch {
+		case errors.Is(err, context.Canceled):
+			t.state.Store(CANCELED)
+			return errors.Join(ErrCancelledTask, err)
+		case errors.Is(err, nil):
+			t.state.Store(DONE)
+			return nil
+		default:
 			t.state.Store(FAILED)
 			return err
 		}
-		t.state.Store(DONE)
-		return nil
 	}
 }
 
@@ -131,15 +143,17 @@ func (t *Task) Go(ctx context.Context) error {
 		return errors.Join(ErrCancelledTask, ctx.Err())
 	case <-time.After(t.delay):
 		compCtx, cancel := context.WithCancel(ctx)
+		t.mu.Lock()
 		t.cancel = cancel
+		t.mu.Unlock()
 		t.wait.Add(1)
 		go func() {
 			defer t.wait.Done()
-			t.mu.Lock()
 			if err := t.run(compCtx); err != nil {
+				t.mu.Lock()
 				t.err = err
+				t.mu.Unlock()
 			}
-			t.mu.Unlock()
 		}()
 		t.state.Store(STARTED)
 		return nil
@@ -160,7 +174,7 @@ attempt:
 	if err := t.Go(ctx); err != nil {
 		return err
 	}
-	t.Wait()
+	t.Await()
 	if t.IsFailed() {
 		a++
 		goto attempt
@@ -169,8 +183,10 @@ attempt:
 }
 
 func (t *Task) Cancel() {
-	defer t.state.Store(CANCELED)
+	t.mu.Lock()
 	t.cancel()
+	t.mu.Unlock()
+	t.state.Store(CANCELED)
 }
 
 func (t *Task) IsCreated() bool {
@@ -208,12 +224,12 @@ func (t *Task) IsInProgress() bool {
 }
 
 func (t *Task) Err() error {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	return t.err
 }
 
-func (t *Task) Wait() {
+func (t *Task) Await() {
 	t.wait.Wait()
 }
 

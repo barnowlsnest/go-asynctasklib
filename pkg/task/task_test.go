@@ -188,7 +188,7 @@ func (s *TaskTestSuite) TestNew() {
 			if !tc.shouldHaveCustomFn {
 				err := task.Go(s.ctx)
 				s.NoError(err)
-				task.Wait()
+				task.Await()
 				if tc.shouldReturnError {
 					s.True(task.IsFailed())
 					s.Equal(tc.expectedDefaultErr, task.Err())
@@ -326,7 +326,7 @@ func (s *TaskTestSuite) TestTaskGo() {
 		s.Equal(ErrTaskInProgress, err2)
 		
 		close(barrier)
-		task.Wait()
+		task.Await()
 	})
 	
 	inProgressStates := []uint32{PENDING, STARTED}
@@ -354,7 +354,7 @@ func (s *TaskTestSuite) TestTaskGo() {
 		
 		// Task should briefly be in PENDING state, then STARTED
 		<-executed
-		task.Wait()
+		task.Await()
 		s.True(task.IsDone())
 	})
 }
@@ -404,7 +404,7 @@ func (s *TaskTestSuite) TestTaskDelay() {
 				s.Less(duration, time.Millisecond*10)
 			}
 			
-			task.Wait()
+			task.Await()
 			s.True(task.IsDone())
 		})
 	}
@@ -462,9 +462,9 @@ func (s *TaskTestSuite) TestTaskGoRetry() {
 					return nil
 				},
 			})
-
+			
 			err := task.GoRetry(s.ctx)
-
+			
 			if tc.expectSuccess {
 				s.NoError(err)
 				s.True(task.IsDone())
@@ -567,7 +567,7 @@ func (s *TaskTestSuite) TestTaskExecution() {
 				s.NoError(err)
 			}
 			
-			task.Wait()
+			task.Await()
 			
 			s.Equal(tc.expectedState, task.state.Load())
 			
@@ -615,6 +615,35 @@ func (s *TaskTestSuite) TestTaskTimeout() {
 			expectTimeout: false,
 		},
 	}
+
+	// Test case for timeout vs cancellation bug fix
+	s.Run("cancellation during timeout should set CANCELED not FAILED", func() {
+		task := New(Definition{
+			MaxDuration: time.Millisecond * 100,
+			TaskFn: func(r *Run) error {
+				// Task will run longer than timeout
+				time.Sleep(time.Millisecond * 200)
+				return nil
+			},
+		})
+
+		ctx, cancel := context.WithCancel(s.ctx)
+		err := task.Go(ctx)
+		s.NoError(err)
+
+		// Cancel the context during timeout period
+		go func() {
+			time.Sleep(time.Millisecond * 50) // Cancel before timeout
+			cancel()
+		}()
+
+		task.Await()
+
+		// Should be CANCELED, not FAILED
+		s.True(task.IsCanceled(), "Task should be CANCELED when context is cancelled during timeout")
+		s.False(task.IsFailed(), "Task should not be FAILED when context is cancelled")
+		s.Contains(task.Err().Error(), "task was cancelled")
+	})
 	
 	for _, tc := range timeoutTestCases {
 		s.Run(tc.name, func() {
@@ -630,7 +659,7 @@ func (s *TaskTestSuite) TestTaskTimeout() {
 			
 			err := task.Go(s.ctx)
 			s.NoError(err)
-			task.Wait()
+			task.Await()
 			
 			if tc.expectTimeout {
 				s.True(task.IsFailed())
@@ -742,7 +771,7 @@ func (s *TaskTestSuite) TestTaskCancellation() {
 				tc.triggerCancel(task, cancel)
 			}
 			
-			task.Wait()
+			task.Await()
 			
 			if tc.expectCanceled {
 				s.True(task.IsCanceled())
@@ -764,7 +793,7 @@ func (s *TaskTestSuite) TestRunInterface() {
 		
 		err := task.Go(s.ctx)
 		s.NoError(err)
-		task.Wait()
+		task.Await()
 		
 		s.Equal(task.ID(), runID)
 	})
@@ -784,7 +813,7 @@ func (s *TaskTestSuite) TestRunInterface() {
 		
 		err := task.Go(ctx)
 		s.NoError(err)
-		task.Wait()
+		task.Await()
 		
 		s.Equal(testValue, runCtx.Value(testKey))
 	})
@@ -800,7 +829,7 @@ func (s *TaskTestSuite) TestRunInterface() {
 		
 		err := task.Go(s.ctx)
 		s.NoError(err)
-		task.Wait()
+		task.Await()
 		
 		s.True(task.IsCanceled())
 	})
@@ -810,14 +839,14 @@ func (s *TaskTestSuite) TestRunInterface() {
 		task := New(Definition{
 			TaskFn: func(r *Run) error {
 				cancelFunc = r.Cancel
-				// Don't actually cancel to test the type
+				// Don't cancel to test the type
 				return nil
 			},
 		})
 		
 		err := task.Go(s.ctx)
 		s.NoError(err)
-		task.Wait()
+		task.Await()
 		
 		s.NotNil(cancelFunc)
 		s.True(task.IsDone())
@@ -845,7 +874,7 @@ func (s *TaskTestSuite) TestRunInterface() {
 		
 		err := task.Go(s.ctx)
 		s.NoError(err)
-		task.Wait()
+		task.Await()
 		
 		s.Equal(id1, id2)
 		s.Equal(ctx1, ctx2)
@@ -919,7 +948,7 @@ func (s *TaskTestSuite) TestRaceConditions() {
 				}
 				
 				wg.Wait()
-				task.Wait()
+				task.Await()
 			
 			case "concurrent task creation":
 				tasks := make([]*Task, tc.numWorkers*tc.operations)
@@ -984,7 +1013,7 @@ func (s *TaskTestSuite) TestRaceConditions() {
 								}()
 							}
 							
-							task.Wait()
+							task.Await()
 							s.True(task.IsEnd())
 							atomic.AddInt64(&counter, 1)
 						}
@@ -1053,7 +1082,7 @@ func (s *TaskTestSuite) TestEdgeCases() {
 		s.Equal(numTasks, len(ids))
 	})
 	
-	s.Run("multiple Wait calls are safe", func() {
+	s.Run("multiple Await calls are safe", func() {
 		task := New(Definition{
 			TaskFn: func(r *Run) error {
 				time.Sleep(time.Millisecond * 50)
@@ -1069,7 +1098,7 @@ func (s *TaskTestSuite) TestEdgeCases() {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				task.Wait()
+				task.Await()
 			}()
 		}
 		
@@ -1092,7 +1121,7 @@ func (s *TaskTestSuite) TestEdgeCases() {
 			
 			go cancel()
 			
-			task.Wait()
+			task.Await()
 			s.True(task.IsEnd())
 		}
 	})
@@ -1115,7 +1144,7 @@ func (s *TaskTestSuite) TestEdgeCases() {
 			
 			err := task.Go(s.ctx)
 			s.NoError(err)
-			task.Wait()
+			task.Await()
 			
 			s.True(task.IsFailed())
 			s.Contains(task.Err().Error(), "task panicked")
@@ -1147,14 +1176,14 @@ func (s *TaskTestSuite) TestEdgeCases() {
 		
 		err := task.Go(ctx)
 		s.Error(err)
-		task.Wait()
+		task.Await()
 		
 		s.True(task.IsCanceled())
 	})
 }
 
 func (s *TaskTestSuite) TestTaskWait() {
-	s.Run("Wait blocks until task completes", func() {
+	s.Run("Await blocks until task completes", func() {
 		var completed int32
 		task := New(Definition{
 			TaskFn: func(r *Run) error {
@@ -1168,23 +1197,23 @@ func (s *TaskTestSuite) TestTaskWait() {
 		s.NoError(err)
 		
 		s.Equal(int32(0), atomic.LoadInt32(&completed))
-		task.Wait()
+		task.Await()
 		s.Equal(int32(1), atomic.LoadInt32(&completed))
 		s.True(task.IsDone())
 	})
 	
-	s.Run("Wait returns immediately if task not started", func() {
+	s.Run("Await returns immediately if task not started", func() {
 		task := New(Definition{TaskFn: func(r *Run) error { return nil }})
 		
 		start := time.Now()
-		task.Wait()
+		task.Await()
 		duration := time.Since(start)
 		
 		s.Less(duration, time.Millisecond*10)
 		s.True(task.IsCreated())
 	})
 	
-	s.Run("Wait works for all end states", func() {
+	s.Run("Await works for all end states", func() {
 		endStates := []struct {
 			name     string
 			setupFn  func() *Task
@@ -1226,7 +1255,7 @@ func (s *TaskTestSuite) TestTaskWait() {
 		for _, tc := range endStates {
 			s.Run(tc.name, func() {
 				task := tc.setupFn()
-				task.Wait()
+				task.Await()
 				s.Equal(tc.expected, task.state.Load())
 			})
 		}
@@ -1258,7 +1287,7 @@ func BenchmarkTaskExecution(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		task.Wait()
+		task.Await()
 	}
 }
 
@@ -1276,7 +1305,7 @@ func BenchmarkTaskExecutionWithDelay(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		task.Wait()
+		task.Await()
 	}
 }
 
@@ -1318,7 +1347,7 @@ func BenchmarkConcurrentTaskExecution(b *testing.B) {
 			if err != nil {
 				b.Fatal(err)
 			}
-			task.Wait()
+			task.Await()
 		}
 	})
 }
@@ -1351,7 +1380,7 @@ func BenchmarkStateChecks(b *testing.B) {
 		}
 	})
 	
-	task.Wait()
+	task.Await()
 }
 
 func BenchmarkMemoryAllocation(b *testing.B) {
@@ -1369,7 +1398,7 @@ func BenchmarkMemoryAllocation(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		task.Wait()
+		task.Await()
 	}
 }
 
@@ -1393,7 +1422,7 @@ func (s *TaskTestSuite) TestMemoryLeak() {
 				
 				err := task.Go(s.ctx)
 				s.NoError(err)
-				task.Wait()
+				task.Await()
 			}()
 		}
 		
