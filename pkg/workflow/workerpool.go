@@ -121,6 +121,7 @@ func (p *Pool) SubmitBatch(ctx context.Context, defs []task.Definition) ([]*task
 
 func (p *Pool) Wait() {
 	p.mu.Lock()
+	defer p.mu.Unlock()
 	tasksCopy := make([]*task.Task, len(p.tasks))
 	copy(tasksCopy, p.tasks)
 	p.mu.Unlock()
@@ -128,9 +129,6 @@ func (p *Pool) Wait() {
 	for _, t := range tasksCopy {
 		t.Await()
 	}
-	
-	// Wait for all semaphore release goroutines to complete
-	p.releaseWg.Wait()
 }
 
 func (p *Pool) WaitWithContext(ctx context.Context) error {
