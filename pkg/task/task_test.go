@@ -9,7 +9,7 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
-	
+
 	"github.com/stretchr/testify/suite"
 )
 
@@ -168,7 +168,7 @@ func (s *TaskTestSuite) TestNew() {
 			expectedDefaultErr: ErrTaskFnNotSet,
 		},
 	}
-	
+
 	for _, tc := range testCases {
 		s.Run(tc.name, func() {
 			task := New(tc.definition)
@@ -187,7 +187,7 @@ func (s *TaskTestSuite) TestNew() {
 			s.Equal(tc.definition.ID, task.ID())
 			s.Nil(task.Err())
 			s.NotNil(task.fn)
-			
+
 			// Test default function behavior
 			if !tc.shouldHaveCustomFn {
 				err := task.Go(s.ctx)
@@ -289,12 +289,12 @@ func (s *TaskTestSuite) TestTaskStates() {
 			},
 		},
 	}
-	
+
 	for _, tc := range stateTestCases {
 		s.Run(tc.name, func() {
 			task := New(Definition{TaskFn: func(r *Run) error { return nil }})
 			task.state.Store(tc.initialState)
-			
+
 			s.Equal(tc.expectedChecks["IsCreated"], task.IsCreated())
 			s.Equal(tc.expectedChecks["IsPending"], task.IsPending())
 			s.Equal(tc.expectedChecks["IsStarted"], task.IsStarted())
@@ -313,7 +313,7 @@ func (s *TaskTestSuite) TestTaskGo() {
 		err := task.Go(nil)
 		s.Equal(ErrNilCtx, err)
 	})
-	
+
 	s.Run("returns error when task is already in progress", func() {
 		barrier := make(chan struct{})
 		task := New(Definition{
@@ -322,28 +322,28 @@ func (s *TaskTestSuite) TestTaskGo() {
 				return nil
 			},
 		})
-		
+
 		err1 := task.Go(s.ctx)
 		s.NoError(err1)
-		
+
 		err2 := task.Go(s.ctx)
 		s.Equal(ErrTaskInProgress, err2)
-		
+
 		close(barrier)
 		task.Await()
 	})
-	
+
 	inProgressStates := []uint32{PENDING, STARTED}
 	for _, state := range inProgressStates {
 		s.Run(fmt.Sprintf("returns error when task is in %d state", state), func() {
 			task := New(Definition{TaskFn: func(r *Run) error { return nil }})
 			task.state.Store(state)
-			
+
 			err := task.Go(s.ctx)
 			s.Equal(ErrTaskInProgress, err)
 		})
 	}
-	
+
 	s.Run("task transitions to PENDING before STARTED", func() {
 		executed := make(chan struct{})
 		task := New(Definition{
@@ -352,10 +352,10 @@ func (s *TaskTestSuite) TestTaskGo() {
 				return nil
 			},
 		})
-		
+
 		err := task.Go(s.ctx)
 		s.NoError(err)
-		
+
 		// Task should briefly be in PENDING state, then STARTED
 		<-executed
 		task.Await()
@@ -384,7 +384,7 @@ func (s *TaskTestSuite) TestTaskDelay() {
 			minDuration: time.Millisecond * 180,
 		},
 	}
-	
+
 	for _, tc := range delayTestCases {
 		s.Run(tc.name, func() {
 			executed := make(chan struct{})
@@ -395,19 +395,19 @@ func (s *TaskTestSuite) TestTaskDelay() {
 					return nil
 				},
 			})
-			
+
 			start := time.Now()
 			err := task.Go(s.ctx)
 			s.NoError(err)
 			<-executed
 			duration := time.Since(start)
-			
+
 			if tc.expectDelay {
 				s.GreaterOrEqual(duration, tc.minDuration)
 			} else {
 				s.Less(duration, time.Millisecond*10)
 			}
-			
+
 			task.Await()
 			s.True(task.IsDone())
 		})
@@ -452,7 +452,7 @@ func (s *TaskTestSuite) TestTaskGoRetry() {
 			expectedError: nil,
 		},
 	}
-	
+
 	for _, tc := range retryTestCases {
 		s.Run(tc.name, func() {
 			attempts := 0
@@ -466,9 +466,9 @@ func (s *TaskTestSuite) TestTaskGoRetry() {
 					return nil
 				},
 			})
-			
+
 			err := task.GoRetry(s.ctx)
-			
+
 			if tc.expectSuccess {
 				s.NoError(err)
 				s.True(task.IsDone())
@@ -493,13 +493,13 @@ func (s *TaskTestSuite) TestTaskGoRetryWithContextCancellation() {
 				return errors.New("always fail")
 			},
 		})
-		
+
 		ctx, cancel := context.WithCancel(s.ctx)
 		go func() {
 			time.Sleep(time.Millisecond * 50)
 			cancel()
 		}()
-		
+
 		err := task.GoRetry(ctx)
 		s.Error(err)
 		s.Contains(err.Error(), "task was cancelled")
@@ -555,11 +555,11 @@ func (s *TaskTestSuite) TestTaskExecution() {
 			expectedState: DONE,
 		},
 	}
-	
+
 	for _, tc := range executionTestCases {
 		s.Run(tc.name, func() {
 			task := New(Definition{TaskFn: tc.taskFn})
-			
+
 			if tc.name == "task function with context cancellation" {
 				ctx, cancel := context.WithCancel(s.ctx)
 				err := task.Go(ctx)
@@ -570,11 +570,11 @@ func (s *TaskTestSuite) TestTaskExecution() {
 				err := task.Go(s.ctx)
 				s.NoError(err)
 			}
-			
+
 			task.Await()
-			
+
 			s.Equal(tc.expectedState, task.state.Load())
-			
+
 			if tc.expectedErr != nil {
 				s.Equal(tc.expectedErr, task.Err())
 			} else if tc.shouldContain != "" {
@@ -648,7 +648,7 @@ func (s *TaskTestSuite) TestTaskTimeout() {
 		s.False(task.IsFailed(), "Task should not be FAILED when context is cancelled")
 		s.Contains(task.Err().Error(), "task was cancelled")
 	})
-	
+
 	for _, tc := range timeoutTestCases {
 		s.Run(tc.name, func() {
 			task := New(Definition{
@@ -660,11 +660,11 @@ func (s *TaskTestSuite) TestTaskTimeout() {
 					return nil
 				},
 			})
-			
+
 			err := task.Go(s.ctx)
 			s.NoError(err)
 			task.Await()
-			
+
 			if tc.expectTimeout {
 				s.True(task.IsFailed())
 				s.Equal(ErrTaskTimeout, task.Err())
@@ -735,14 +735,14 @@ func (s *TaskTestSuite) TestTaskCancellation() {
 			expectCanceled: true,
 		},
 	}
-	
+
 	for _, tc := range cancellationTestCases {
 		s.Run(tc.name, func() {
 			delay := time.Duration(0)
 			if tc.name == "cancel during delay period" {
 				delay = time.Millisecond * 100
 			}
-			
+
 			started := make(chan struct{})
 			task := New(Definition{
 				Delay: delay,
@@ -752,20 +752,20 @@ func (s *TaskTestSuite) TestTaskCancellation() {
 					return r.Context().Err()
 				},
 			})
-			
+
 			ctx, cancel := context.WithCancel(s.ctx)
 			defer cancel()
-			
+
 			if tc.name == "cancel task that hasn't started" {
 				tc.triggerCancel(task, cancel)
 				s.True(task.IsCanceled())
 				return
 			}
-			
+
 			execCtx := tc.setupCancel(task, ctx)
 			err := task.Go(execCtx)
 			s.NoError(err)
-			
+
 			if tc.name == "cancel during delay period" {
 				go tc.triggerCancel(task, cancel)
 			} else if tc.name != "cancel via context timeout" {
@@ -774,9 +774,9 @@ func (s *TaskTestSuite) TestTaskCancellation() {
 				}
 				tc.triggerCancel(task, cancel)
 			}
-			
+
 			task.Await()
-			
+
 			if tc.expectCanceled {
 				s.True(task.IsCanceled())
 				s.Contains(task.Err().Error(), "task was cancelled")
@@ -794,19 +794,19 @@ func (s *TaskTestSuite) TestRunInterface() {
 				return nil
 			},
 		})
-		
+
 		err := task.Go(s.ctx)
 		s.NoError(err)
 		task.Await()
-		
+
 		s.Equal(task.ID(), runID)
 	})
-	
+
 	s.Run("Run provides correct context", func() {
 		testKey := "test-key"
 		testValue := "test-value"
 		ctx := context.WithValue(s.ctx, testKey, testValue)
-		
+
 		var runCtx context.Context
 		task := New(Definition{
 			TaskFn: func(r *Run) error {
@@ -814,14 +814,14 @@ func (s *TaskTestSuite) TestRunInterface() {
 				return nil
 			},
 		})
-		
+
 		err := task.Go(ctx)
 		s.NoError(err)
 		task.Await()
-		
+
 		s.Equal(testValue, runCtx.Value(testKey))
 	})
-	
+
 	s.Run("Run Cancel method works", func() {
 		task := New(Definition{
 			TaskFn: func(r *Run) error {
@@ -830,14 +830,14 @@ func (s *TaskTestSuite) TestRunInterface() {
 				return r.Context().Err()
 			},
 		})
-		
+
 		err := task.Go(s.ctx)
 		s.NoError(err)
 		task.Await()
-		
+
 		s.True(task.IsCanceled())
 	})
-	
+
 	s.Run("Run Cancel is context.CancelFunc", func() {
 		var cancelFunc context.CancelFunc
 		task := New(Definition{
@@ -847,22 +847,22 @@ func (s *TaskTestSuite) TestRunInterface() {
 				return nil
 			},
 		})
-		
+
 		err := task.Go(s.ctx)
 		s.NoError(err)
 		task.Await()
-		
+
 		s.NotNil(cancelFunc)
 		s.True(task.IsDone())
 	})
-	
+
 	s.Run("Run methods return consistent values", func() {
 		var (
 			id1, id2         string
 			ctx1, ctx2       context.Context
 			cancel1, cancel2 context.CancelFunc
 		)
-		
+
 		task := New(Definition{
 			TaskFn: func(r *Run) error {
 				id1 = r.ID()
@@ -875,11 +875,11 @@ func (s *TaskTestSuite) TestRunInterface() {
 				return nil
 			},
 		})
-		
+
 		err := task.Go(s.ctx)
 		s.NoError(err)
 		task.Await()
-		
+
 		s.Equal(id1, id2)
 		s.Equal(ctx1, ctx2)
 		s.Equal(fmt.Sprintf("%p", cancel1), fmt.Sprintf("%p", cancel2))
@@ -913,12 +913,12 @@ func (s *TaskTestSuite) TestRaceConditions() {
 			description: "Multiple retry operations running concurrently",
 		},
 	}
-	
+
 	for _, tc := range raceTestCases {
 		s.Run(tc.name, func() {
 			var wg sync.WaitGroup
 			var counter int64
-			
+
 			switch tc.name {
 			case "concurrent state reads":
 				task := New(Definition{
@@ -927,10 +927,10 @@ func (s *TaskTestSuite) TestRaceConditions() {
 						return nil
 					},
 				})
-				
+
 				err := task.Go(s.ctx)
 				s.NoError(err)
-				
+
 				for i := 0; i < tc.numWorkers; i++ {
 					wg.Add(1)
 					go func() {
@@ -950,14 +950,14 @@ func (s *TaskTestSuite) TestRaceConditions() {
 						}
 					}()
 				}
-				
+
 				wg.Wait()
 				task.Await()
-			
+
 			case "concurrent task creation":
 				tasks := make([]*Task, tc.numWorkers*tc.operations)
 				index := int64(0)
-				
+
 				for i := 0; i < tc.numWorkers; i++ {
 					wg.Add(1)
 					go func(workerID int) {
@@ -977,9 +977,9 @@ func (s *TaskTestSuite) TestRaceConditions() {
 						}
 					}(i)
 				}
-				
+
 				wg.Wait()
-				
+
 				// Verify all tasks are unique
 				ids := make(map[string]bool)
 				for _, task := range tasks {
@@ -989,7 +989,7 @@ func (s *TaskTestSuite) TestRaceConditions() {
 						ids[id] = true
 					}
 				}
-			
+
 			case "concurrent execution and cancellation":
 				for i := 0; i < tc.numWorkers; i++ {
 					wg.Add(1)
@@ -1006,10 +1006,10 @@ func (s *TaskTestSuite) TestRaceConditions() {
 									}
 								},
 							})
-							
+
 							err := task.Go(s.ctx)
 							s.NoError(err)
-							
+
 							// Randomly cancel some tasks
 							if j%3 == 0 {
 								go func() {
@@ -1017,16 +1017,16 @@ func (s *TaskTestSuite) TestRaceConditions() {
 									task.Cancel()
 								}()
 							}
-							
+
 							task.Await()
 							s.True(task.IsEnd())
 							atomic.AddInt64(&counter, 1)
 						}
 					}()
 				}
-				
+
 				wg.Wait()
-			
+
 			case "concurrent retry operations":
 				for i := 0; i < tc.numWorkers; i++ {
 					wg.Add(1)
@@ -1044,7 +1044,7 @@ func (s *TaskTestSuite) TestRaceConditions() {
 									return nil
 								},
 							})
-							
+
 							err := task.GoRetry(s.ctx)
 							s.NoError(err)
 							s.True(task.IsDone())
@@ -1052,10 +1052,10 @@ func (s *TaskTestSuite) TestRaceConditions() {
 						}
 					}()
 				}
-				
+
 				wg.Wait()
 			}
-			
+
 			expectedOperations := int64(tc.numWorkers * tc.operations)
 			s.Equal(expectedOperations, counter, "Not all operations completed")
 		})
@@ -1097,7 +1097,7 @@ func (s *TaskTestSuite) TestEdgeCases() {
 		})
 		s.Equal("", task.ID())
 	})
-	
+
 	s.Run("multiple Await calls are safe", func() {
 		task := New(Definition{
 			TaskFn: func(r *Run) error {
@@ -1105,10 +1105,10 @@ func (s *TaskTestSuite) TestEdgeCases() {
 				return nil
 			},
 		})
-		
+
 		err := task.Go(s.ctx)
 		s.NoError(err)
-		
+
 		var wg sync.WaitGroup
 		for i := 0; i < 20; i++ {
 			wg.Add(1)
@@ -1117,11 +1117,11 @@ func (s *TaskTestSuite) TestEdgeCases() {
 				task.Await()
 			}()
 		}
-		
+
 		wg.Wait()
 		s.True(task.IsDone())
 	})
-	
+
 	s.Run("context cancellation race with task completion", func() {
 		for i := 0; i < 50; i++ {
 			ctx, cancel := context.WithCancel(s.ctx)
@@ -1131,17 +1131,17 @@ func (s *TaskTestSuite) TestEdgeCases() {
 					return nil
 				},
 			})
-			
+
 			err := task.Go(ctx)
 			s.NoError(err)
-			
+
 			go cancel()
-			
+
 			task.Await()
 			s.True(task.IsEnd())
 		}
 	})
-	
+
 	s.Run("panic in task function is properly recovered", func() {
 		panicMessages := []interface{}{
 			"string panic",
@@ -1150,23 +1150,23 @@ func (s *TaskTestSuite) TestEdgeCases() {
 			nil,
 			struct{ msg string }{"struct panic"},
 		}
-		
+
 		for _, panicMsg := range panicMessages {
 			task := New(Definition{
 				TaskFn: func(r *Run) error {
 					panic(panicMsg)
 				},
 			})
-			
+
 			err := task.Go(s.ctx)
 			s.NoError(err)
 			task.Await()
-			
+
 			s.True(task.IsFailed())
 			s.Contains(task.Err().Error(), "task panicked")
 		}
 	})
-	
+
 	s.Run("retry with zero maxRetries", func() {
 		task := New(Definition{
 			MaxRetries: 0,
@@ -1174,11 +1174,11 @@ func (s *TaskTestSuite) TestEdgeCases() {
 				return errors.New("always fail")
 			},
 		})
-		
+
 		err := task.GoRetry(s.ctx)
 		s.Error(err)
 	})
-	
+
 	s.Run("delay with immediate cancellation", func() {
 		task := New(Definition{
 			Delay: time.Millisecond * 100,
@@ -1186,14 +1186,14 @@ func (s *TaskTestSuite) TestEdgeCases() {
 				return nil
 			},
 		})
-		
+
 		ctx, cancel := context.WithCancel(s.ctx)
 		cancel() // Cancel immediately
-		
+
 		err := task.Go(ctx)
 		s.Error(err)
 		task.Await()
-		
+
 		s.True(task.IsCanceled())
 	})
 }
@@ -1208,27 +1208,27 @@ func (s *TaskTestSuite) TestTaskWait() {
 				return nil
 			},
 		})
-		
+
 		err := task.Go(s.ctx)
 		s.NoError(err)
-		
+
 		s.Equal(int32(0), atomic.LoadInt32(&completed))
 		task.Await()
 		s.Equal(int32(1), atomic.LoadInt32(&completed))
 		s.True(task.IsDone())
 	})
-	
+
 	s.Run("Await returns immediately if task not started", func() {
 		task := New(Definition{TaskFn: func(r *Run) error { return nil }})
-		
+
 		start := time.Now()
 		task.Await()
 		duration := time.Since(start)
-		
+
 		s.Less(duration, time.Millisecond*10)
 		s.True(task.IsCreated())
 	})
-	
+
 	s.Run("Await works for all end states", func() {
 		endStates := []struct {
 			name     string
@@ -1267,7 +1267,7 @@ func (s *TaskTestSuite) TestTaskWait() {
 				expected: CANCELED,
 			},
 		}
-		
+
 		for _, tc := range endStates {
 			s.Run(tc.name, func() {
 				task := tc.setupFn()
@@ -1283,7 +1283,7 @@ func BenchmarkTaskCreation(b *testing.B) {
 	def := Definition{
 		TaskFn: func(r *Run) error { return nil },
 	}
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = New(def)
@@ -1292,13 +1292,13 @@ func BenchmarkTaskCreation(b *testing.B) {
 
 func BenchmarkTaskExecution(b *testing.B) {
 	ctx := context.Background()
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		task := New(Definition{
 			TaskFn: func(r *Run) error { return nil },
 		})
-		
+
 		err := task.Go(ctx)
 		if err != nil {
 			b.Fatal(err)
@@ -1309,14 +1309,14 @@ func BenchmarkTaskExecution(b *testing.B) {
 
 func BenchmarkTaskExecutionWithDelay(b *testing.B) {
 	ctx := context.Background()
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		task := New(Definition{
 			Delay:  time.Microsecond * 10,
 			TaskFn: func(r *Run) error { return nil },
 		})
-		
+
 		err := task.Go(ctx)
 		if err != nil {
 			b.Fatal(err)
@@ -1327,7 +1327,7 @@ func BenchmarkTaskExecutionWithDelay(b *testing.B) {
 
 func BenchmarkTaskRetry(b *testing.B) {
 	ctx := context.Background()
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		attempts := 0
@@ -1341,7 +1341,7 @@ func BenchmarkTaskRetry(b *testing.B) {
 				return nil
 			},
 		})
-		
+
 		err := task.GoRetry(ctx)
 		if err != nil {
 			b.Fatal(err)
@@ -1351,14 +1351,14 @@ func BenchmarkTaskRetry(b *testing.B) {
 
 func BenchmarkConcurrentTaskExecution(b *testing.B) {
 	ctx := context.Background()
-	
+
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			task := New(Definition{
 				TaskFn: func(r *Run) error { return nil },
 			})
-			
+
 			err := task.Go(ctx)
 			if err != nil {
 				b.Fatal(err)
@@ -1375,13 +1375,13 @@ func BenchmarkStateChecks(b *testing.B) {
 			return nil
 		},
 	})
-	
+
 	ctx := context.Background()
 	err := task.Go(ctx)
 	if err != nil {
 		b.Fatal(err)
 	}
-	
+
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
@@ -1395,21 +1395,21 @@ func BenchmarkStateChecks(b *testing.B) {
 			task.IsEnd()
 		}
 	})
-	
+
 	task.Await()
 }
 
 func BenchmarkMemoryAllocation(b *testing.B) {
 	ctx := context.Background()
-	
+
 	b.ResetTimer()
 	b.ReportAllocs()
-	
+
 	for i := 0; i < b.N; i++ {
 		task := New(Definition{
 			TaskFn: func(r *Run) error { return nil },
 		})
-		
+
 		err := task.Go(ctx)
 		if err != nil {
 			b.Fatal(err)
@@ -1422,7 +1422,7 @@ func BenchmarkMemoryAllocation(b *testing.B) {
 func (s *TaskTestSuite) TestMemoryLeak() {
 	s.Run("no goroutine leaks", func() {
 		initialGoroutines := runtime.NumGoroutine()
-		
+
 		// Create and run many tasks
 		var wg sync.WaitGroup
 		for i := 0; i < 100; i++ {
@@ -1435,31 +1435,31 @@ func (s *TaskTestSuite) TestMemoryLeak() {
 						return nil
 					},
 				})
-				
+
 				err := task.Go(s.ctx)
 				s.NoError(err)
 				task.Await()
 			}()
 		}
-		
+
 		wg.Wait()
-		
+
 		// Give time for goroutines to cleanup
 		time.Sleep(time.Millisecond * 100)
 		runtime.GC()
 		time.Sleep(time.Millisecond * 100)
-		
+
 		finalGoroutines := runtime.NumGoroutine()
-		
+
 		// Allow for some variance but should be close to initial count
 		s.InDelta(initialGoroutines, finalGoroutines, 5,
 			"Potential goroutine leak detected: initial=%d, final=%d",
 			initialGoroutines, finalGoroutines)
 	})
-	
+
 	s.Run("no goroutine leaks with retries", func() {
 		initialGoroutines := runtime.NumGoroutine()
-		
+
 		// Create and run many retry tasks
 		var wg sync.WaitGroup
 		for i := 0; i < 50; i++ {
@@ -1478,21 +1478,21 @@ func (s *TaskTestSuite) TestMemoryLeak() {
 						return nil
 					},
 				})
-				
+
 				err := task.GoRetry(s.ctx)
 				s.NoError(err)
 			}()
 		}
-		
+
 		wg.Wait()
-		
+
 		// Give time for goroutines to cleanup
 		time.Sleep(time.Millisecond * 100)
 		runtime.GC()
 		time.Sleep(time.Millisecond * 100)
-		
+
 		finalGoroutines := runtime.NumGoroutine()
-		
+
 		// Allow for some variance but should be close to initial count
 		s.InDelta(initialGoroutines, finalGoroutines, 5,
 			"Potential goroutine leak detected: initial=%d, final=%d",

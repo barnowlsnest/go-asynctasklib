@@ -9,16 +9,7 @@ import (
 	"time"
 )
 
-const (
-	CREATED = iota
-	PENDING
-	STARTED
-	DONE
-	FAILED
-	CANCELED
-	
-	defaultTimeout = time.Second * 30
-)
+const defaultTimeout = time.Second * 30
 
 type (
 	Run struct {
