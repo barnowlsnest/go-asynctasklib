@@ -33,7 +33,7 @@ type (
 		fn         func(*Run) error
 		cancel     context.CancelFunc
 		hooks      *StateHooks
-		wait       sync.WaitGroup
+		wg         sync.WaitGroup
 		mu         sync.Mutex
 		state      atomic.Uint32
 		attempts   atomic.Uint32
@@ -182,9 +182,10 @@ func (t *Task) Go(ctx context.Context) error {
 		t.mu.Lock()
 		t.cancel = cancel
 		t.mu.Unlock()
-		t.wait.Add(1)
+		t.wg.Add(1)
+
 		go func() {
-			defer t.wait.Done()
+			defer t.wg.Done()
 			if err := t.run(compCtx); err != nil {
 				t.mu.Lock()
 				t.err = err
@@ -273,7 +274,7 @@ func (t *Task) Err() error {
 }
 
 func (t *Task) Await() {
-	t.wait.Wait()
+	t.wg.Wait()
 }
 
 func (t *Task) ID() string {
