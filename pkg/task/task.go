@@ -13,34 +13,43 @@ const defaultTimeout = time.Second * 30
 
 type (
 	Run struct {
-		ID      func() string
-		Context func() context.Context
-		Cancel  context.CancelFunc
+		ID       func() string
+		Context  func() context.Context
+		Cancel   context.CancelFunc
+		Callback func()
 	}
-	
+
 	Definition struct {
+		ID          string
+		TaskFn      func(*Run) error
+		Hooks       *StateHooks
 		Delay       time.Duration
 		MaxDuration time.Duration
-		ID          string
 		MaxRetries  int
-		TaskFn      func(*Run) error
 	}
-	
+
 	Task struct {
-		timeout    time.Duration
-		delay      time.Duration
 		id         string
-		err        error
-		maxRetries int
-		state      atomic.Uint32
-		wait       sync.WaitGroup
-		mu         sync.Mutex
 		fn         func(*Run) error
 		cancel     context.CancelFunc
+		hooks      *StateHooks
+		wait       sync.WaitGroup
+		mu         sync.Mutex
+		state      atomic.Uint32
+		attempts   atomic.Uint32
+		timeout    time.Duration
+		delay      time.Duration
+		maxRetries int
+		err        error
 	}
 )
 
 func New(d Definition) *Task {
+	hooks := NewStateHooks()
+	if d.Hooks != nil {
+		hooks = d.Hooks
+	}
+
 	t := &Task{
 		id:         d.ID,
 		cancel:     func() {},
@@ -48,41 +57,45 @@ func New(d Definition) *Task {
 		timeout:    defaultTimeout,
 		delay:      d.Delay,
 		maxRetries: d.MaxRetries,
+		hooks:      hooks,
 	}
-	t.state.Store(CREATED)
+
 	if d.TaskFn != nil {
 		t.fn = d.TaskFn
 	}
 	if d.MaxDuration > 0 {
 		t.timeout = d.MaxDuration
 	}
+
+	t.created()
+
 	return t
 }
 
 func (t *Task) run(ctx context.Context) error {
 	select {
 	case <-ctx.Done():
-		t.state.Store(CANCELED)
+		t.canceled()
 		return errors.Join(ErrCancelledTask, ctx.Err())
 	case <-time.After(t.timeout):
 		select {
 		case <-ctx.Done():
-			t.state.Store(CANCELED)
+			t.canceled()
 			return errors.Join(ErrCancelledTask, ctx.Err())
 		default:
-			t.state.Store(FAILED)
+			t.failed(ErrTaskTimeout)
 			return ErrTaskTimeout
 		}
 	case err := <-t.delegateFn(ctx):
 		switch {
 		case errors.Is(err, context.Canceled):
-			t.state.Store(CANCELED)
+			t.canceled()
 			return errors.Join(ErrCancelledTask, err)
 		case errors.Is(err, nil):
-			t.state.Store(DONE)
+			t.done()
 			return nil
 		default:
-			t.state.Store(FAILED)
+			t.failed(err)
 			return err
 		}
 	}
@@ -103,19 +116,51 @@ func (t *Task) delegateFn(ctx context.Context) <-chan error {
 			return
 		default:
 			run := &Run{
-				Cancel:  t.cancel,
-				ID:      func() string { return t.id },
-				Context: func() context.Context { return ctx },
+				Cancel:   t.cancel,
+				ID:       func() string { return t.id },
+				Context:  func() context.Context { return ctx },
+				Callback: func() { t.hooks.onTaskFn(t.id, time.Now().UTC()) },
 			}
 			if err := t.fn(run); err != nil {
 				errCh <- err
 				return
 			}
+
 			errCh <- nil
 			return
 		}
 	}()
 	return errCh
+}
+
+func (t *Task) pending() {
+	t.state.Store(PENDING)
+	t.hooks.onPending(t.id, time.Now().UTC(), int(t.attempts.Load()))
+}
+
+func (t *Task) canceled() {
+	t.state.Store(CANCELED)
+	t.hooks.onCanceled(t.id, time.Now().UTC())
+}
+
+func (t *Task) started() {
+	t.state.Store(STARTED)
+	t.hooks.onStarted(t.id, time.Now().UTC())
+}
+
+func (t *Task) failed(err error) {
+	t.state.Store(FAILED)
+	t.hooks.onFailed(t.id, time.Now().UTC(), err)
+}
+
+func (t *Task) done() {
+	t.state.Store(DONE)
+	t.hooks.onDone(t.id, time.Now().UTC())
+}
+
+func (t *Task) created() {
+	t.state.Store(CREATED)
+	t.hooks.onCreated(t.id, time.Now().UTC())
 }
 
 func (t *Task) Go(ctx context.Context) error {
@@ -125,10 +170,12 @@ func (t *Task) Go(ctx context.Context) error {
 	if t.IsInProgress() {
 		return ErrTaskInProgress
 	}
-	t.state.Store(PENDING)
+
+	t.pending()
+
 	select {
 	case <-ctx.Done():
-		t.state.Store(CANCELED)
+		t.canceled()
 		return errors.Join(ErrCancelledTask, ctx.Err())
 	case <-time.After(t.delay):
 		compCtx, cancel := context.WithCancel(ctx)
@@ -144,7 +191,9 @@ func (t *Task) Go(ctx context.Context) error {
 				t.mu.Unlock()
 			}
 		}()
-		t.state.Store(STARTED)
+
+		t.started()
+
 		return nil
 	}
 }
@@ -154,27 +203,29 @@ func (t *Task) GoRetry(ctx context.Context) error {
 		t.state.Store(FAILED)
 		return ErrMaxRetriesNotSet
 	}
-	var a int
+
 attempt:
-	if a >= t.maxRetries {
+	if int(t.attempts.Load()) >= t.maxRetries {
 		return ErrMaxRetriesExceeded
 	}
 	if err := t.Go(ctx); err != nil {
 		return err
 	}
+
 	t.Await()
+
 	if t.IsFailed() {
-		a++
+		t.attempts.Add(1)
 		goto attempt
 	}
+
 	return nil
 }
 
 func (t *Task) Cancel() {
 	t.mu.Lock()
+	defer t.mu.Unlock()
 	t.cancel()
-	t.mu.Unlock()
-	t.state.Store(CANCELED)
 }
 
 func (t *Task) State() uint32 {
