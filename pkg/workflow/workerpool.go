@@ -67,8 +67,8 @@ func (p *Pool) Submit(ctx context.Context, def task.Definition) (*task.Task, err
 
 	// Release semaphore when task completes
 	go func() {
-		defer p.releaseWg.Done()
 		defer p.sem.Release()
+		defer p.releaseWg.Done()
 		t.Await()
 	}()
 
