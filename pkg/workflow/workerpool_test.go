@@ -157,24 +157,6 @@ func TestPool_Submit(t *testing.T) {
 	})
 }
 
-func TestPool_SubmitFunc(t *testing.T) {
-	t.Run("submits function as task", func(t *testing.T) {
-		p := NewWorkerPool(2)
-		ctx := context.Background()
-		executed := false
-		
-		tk, err := p.SubmitFunc(ctx, func(r *task.Run) error {
-			executed = true
-			return nil
-		})
-		
-		require.NoError(t, err)
-		tk.Await()
-		assert.True(t, executed)
-		assert.True(t, tk.IsDone())
-	})
-}
-
 func TestPool_SubmitWithErrGroup(t *testing.T) {
 	t.Run("executes all tasks successfully", func(t *testing.T) {
 		p := NewWorkerPool(3)
@@ -665,20 +647,6 @@ func BenchmarkPool_Submit(b *testing.B) {
 			TaskFn: func(r *task.Run) error {
 				return nil
 			},
-		})
-	}
-	
-	p.Wait()
-}
-
-func BenchmarkPool_SubmitFunc(b *testing.B) {
-	p := NewWorkerPool(100)
-	ctx := context.Background()
-	
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_, _ = p.SubmitFunc(ctx, func(r *task.Run) error {
-			return nil
 		})
 	}
 	
