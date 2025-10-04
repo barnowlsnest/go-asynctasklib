@@ -88,6 +88,7 @@ func TestTask_Go(t *testing.T) {
 			TaskFn: func(r *Run) error { return nil },
 		})
 
+		//nolint:staticcheck // intentionally testing nil context
 		err := task.Go(nil)
 		assert.ErrorIs(t, err, ErrNilCtx)
 	})
