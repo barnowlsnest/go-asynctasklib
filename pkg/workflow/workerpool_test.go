@@ -7,10 +7,11 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
-	
-	"github.com/barnowlsnest/go-asynctasklib/pkg/task"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/barnowlsnest/go-asynctasklib/pkg/task"
 )
 
 func TestNewWorkerPool(t *testing.T) {
@@ -22,12 +23,12 @@ func TestNewWorkerPool(t *testing.T) {
 		assert.Equal(t, 0, p.ActiveWorkers())
 		assert.False(t, p.IsStopped())
 	})
-	
+
 	t.Run("creates pool with minimum 1 worker when invalid", func(t *testing.T) {
 		p := NewWorkerPool(0)
 		require.NotNil(t, p)
 		assert.Equal(t, 1, p.MaxWorkers())
-		
+
 		p = NewWorkerPool(-5)
 		require.NotNil(t, p)
 		assert.Equal(t, 1, p.MaxWorkers())
@@ -49,7 +50,7 @@ func TestPool_Submit(t *testing.T) {
 		p := NewWorkerPool(2)
 		ctx := context.Background()
 		executed := false
-		
+
 		tk, err := p.Submit(ctx, task.Definition{
 			ID: "test-task",
 			TaskFn: func(r *task.Run) error {
@@ -57,20 +58,20 @@ func TestPool_Submit(t *testing.T) {
 				return nil
 			},
 		})
-		
+
 		require.NoError(t, err)
 		require.NotNil(t, tk)
 		assert.Equal(t, "test-task", tk.ID())
-		
+
 		tk.Await()
 		assert.True(t, executed)
 		assert.True(t, tk.IsDone())
 	})
-	
+
 	t.Run("respects max workers limit", func(t *testing.T) {
 		p := NewWorkerPool(2)
 		ctx := context.Background()
-		
+
 		// Submit 2 tasks that will block
 		blocker := make(chan struct{})
 		for i := 0; i < 2; i++ {
@@ -82,12 +83,12 @@ func TestPool_Submit(t *testing.T) {
 			})
 			require.NoError(t, err)
 		}
-		
+
 		// Wait for tasks to start
 		time.Sleep(50 * time.Millisecond)
 		assert.Equal(t, 2, p.ActiveWorkers())
 		assert.Equal(t, 0, p.AvailableWorkers())
-		
+
 		// Third task should block until a worker is available
 		submitted := make(chan bool)
 		go func() {
@@ -99,7 +100,7 @@ func TestPool_Submit(t *testing.T) {
 			require.NoError(t, err)
 			submitted <- true
 		}()
-		
+
 		// Should not submit immediately
 		select {
 		case <-submitted:
@@ -107,10 +108,10 @@ func TestPool_Submit(t *testing.T) {
 		case <-time.After(50 * time.Millisecond):
 			// Expected
 		}
-		
+
 		// Release blockers
 		close(blocker)
-		
+
 		// Now third task should submit
 		select {
 		case <-submitted:
@@ -118,40 +119,40 @@ func TestPool_Submit(t *testing.T) {
 		case <-time.After(200 * time.Millisecond):
 			t.Fatal("Task should have been submitted after workers became available")
 		}
-		
+
 		p.Wait()
 	})
-	
+
 	t.Run("returns error when pool is stopped", func(t *testing.T) {
 		p := NewWorkerPool(2)
 		ctx := context.Background()
 		p.Stop()
-		
+
 		tk, err := p.Submit(ctx, task.Definition{
 			TaskFn: func(r *task.Run) error {
 				return nil
 			},
 		})
-		
+
 		assert.Error(t, err)
 		assert.Equal(t, ErrPoolStopped, err)
 		assert.Nil(t, tk)
 	})
-	
+
 	t.Run("handles task errors", func(t *testing.T) {
 		p := NewWorkerPool(2)
 		ctx := context.Background()
 		expectedErr := errors.New("task error")
-		
+
 		tk, err := p.Submit(ctx, task.Definition{
 			TaskFn: func(r *task.Run) error {
 				return expectedErr
 			},
 		})
-		
+
 		require.NoError(t, err)
 		tk.Await()
-		
+
 		assert.True(t, tk.IsFailed())
 		assert.Equal(t, expectedErr, tk.Err())
 	})
@@ -161,7 +162,7 @@ func TestPool_SubmitWithErrGroup(t *testing.T) {
 	t.Run("executes all tasks successfully", func(t *testing.T) {
 		p := NewWorkerPool(3)
 		ctx := context.Background()
-		
+
 		var counter atomic.Int32
 		defs := make([]task.Definition, 10)
 		for i := range defs {
@@ -173,19 +174,19 @@ func TestPool_SubmitWithErrGroup(t *testing.T) {
 				},
 			}
 		}
-		
+
 		err := p.SubmitWithErrGroup(ctx, defs)
 		require.NoError(t, err)
 		assert.Equal(t, int32(10), counter.Load())
 	})
-	
+
 	t.Run("returns first error and cancels remaining tasks", func(t *testing.T) {
 		p := NewWorkerPool(3)
 		ctx := context.Background()
-		
+
 		expectedErr := errors.New("task failed")
 		var successCount atomic.Int32
-		
+
 		defs := []task.Definition{
 			{
 				TaskFn: func(r *task.Run) error {
@@ -207,17 +208,17 @@ func TestPool_SubmitWithErrGroup(t *testing.T) {
 				},
 			},
 		}
-		
+
 		err := p.SubmitWithErrGroup(ctx, defs)
 		assert.Error(t, err)
 		assert.Equal(t, expectedErr, err)
 	})
-	
+
 	t.Run("respects context cancellation", func(t *testing.T) {
 		p := NewWorkerPool(2)
 		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 		defer cancel()
-		
+
 		defs := make([]task.Definition, 5)
 		for i := range defs {
 			defs[i] = task.Definition{
@@ -227,7 +228,7 @@ func TestPool_SubmitWithErrGroup(t *testing.T) {
 				},
 			}
 		}
-		
+
 		err := p.SubmitWithErrGroup(ctx, defs)
 		assert.Error(t, err)
 	})
@@ -237,7 +238,7 @@ func TestPool_SubmitBatch(t *testing.T) {
 	t.Run("submits multiple tasks and returns all", func(t *testing.T) {
 		p := NewWorkerPool(5)
 		ctx := context.Background()
-		
+
 		defs := make([]task.Definition, 10)
 		for i := range defs {
 			defs[i] = task.Definition{
@@ -247,26 +248,26 @@ func TestPool_SubmitBatch(t *testing.T) {
 				},
 			}
 		}
-		
+
 		tasks, err := p.SubmitBatch(ctx, defs)
 		require.NoError(t, err)
 		assert.Len(t, tasks, 10)
-		
+
 		for _, tk := range tasks {
 			tk.Await()
 			assert.True(t, tk.IsDone())
 		}
 	})
-	
+
 	t.Run("returns error if pool is stopped", func(t *testing.T) {
 		p := NewWorkerPool(2)
 		ctx := context.Background()
 		p.Stop()
-		
+
 		defs := []task.Definition{
 			{TaskFn: func(r *task.Run) error { return nil }},
 		}
-		
+
 		tasks, err := p.SubmitBatch(ctx, defs)
 		assert.Error(t, err)
 		assert.Empty(t, tasks)
@@ -277,7 +278,7 @@ func TestPool_Wait(t *testing.T) {
 	t.Run("waits for all tasks to complete", func(t *testing.T) {
 		p := NewWorkerPool(3)
 		ctx := context.Background()
-		
+
 		var counter atomic.Int32
 		for i := 0; i < 10; i++ {
 			_, err := p.Submit(ctx, task.Definition{
@@ -289,7 +290,7 @@ func TestPool_Wait(t *testing.T) {
 			})
 			require.NoError(t, err)
 		}
-		
+
 		p.Wait()
 		assert.Equal(t, int32(10), counter.Load())
 		assert.Equal(t, 0, p.ActiveWorkers())
@@ -300,7 +301,7 @@ func TestPool_WaitWithContext(t *testing.T) {
 	t.Run("waits successfully when tasks complete", func(t *testing.T) {
 		p := NewWorkerPool(2)
 		ctx := context.Background()
-		
+
 		for i := 0; i < 5; i++ {
 			_, err := p.Submit(ctx, task.Definition{
 				TaskFn: func(r *task.Run) error {
@@ -310,18 +311,18 @@ func TestPool_WaitWithContext(t *testing.T) {
 			})
 			require.NoError(t, err)
 		}
-		
+
 		waitCtx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 		defer cancel()
-		
+
 		err := p.WaitWithContext(waitCtx)
 		require.NoError(t, err)
 	})
-	
+
 	t.Run("returns error when context times out", func(t *testing.T) {
 		p := NewWorkerPool(1)
 		ctx := context.Background()
-		
+
 		// Submit a long-running task
 		_, err := p.Submit(ctx, task.Definition{
 			TaskFn: func(r *task.Run) error {
@@ -330,10 +331,10 @@ func TestPool_WaitWithContext(t *testing.T) {
 			},
 		})
 		require.NoError(t, err)
-		
+
 		waitCtx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 		defer cancel()
-		
+
 		err = p.WaitWithContext(waitCtx)
 		assert.Error(t, err)
 		assert.Equal(t, context.DeadlineExceeded, err)
@@ -344,7 +345,7 @@ func TestPool_Stop(t *testing.T) {
 	t.Run("stops pool and prevents new submissions", func(t *testing.T) {
 		p := NewWorkerPool(2)
 		ctx := context.Background()
-		
+
 		// Submit a task
 		_, err := p.Submit(ctx, task.Definition{
 			TaskFn: func(r *task.Run) error {
@@ -353,10 +354,10 @@ func TestPool_Stop(t *testing.T) {
 			},
 		})
 		require.NoError(t, err)
-		
+
 		p.Stop()
 		assert.True(t, p.IsStopped())
-		
+
 		// Try to submit after stop
 		_, err = p.Submit(ctx, task.Definition{
 			TaskFn: func(r *task.Run) error {
@@ -372,7 +373,7 @@ func TestPool_StopWithContext(t *testing.T) {
 	t.Run("stops pool and cancels running tasks", func(t *testing.T) {
 		p := NewWorkerPool(2)
 		ctx := context.Background()
-		
+
 		var canceledCount atomic.Int32
 		for i := 0; i < 3; i++ {
 			_, err := p.Submit(ctx, task.Definition{
@@ -388,22 +389,22 @@ func TestPool_StopWithContext(t *testing.T) {
 			})
 			require.NoError(t, err)
 		}
-		
+
 		time.Sleep(20 * time.Millisecond) // Let tasks start
-		
+
 		stopCtx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 		defer cancel()
-		
+
 		err := p.StopWithContext(stopCtx)
 		require.NoError(t, err)
 		assert.True(t, p.IsStopped())
 		assert.Greater(t, int(canceledCount.Load()), 0)
 	})
-	
+
 	t.Run("cancels running tasks when stopped", func(t *testing.T) {
 		p := NewWorkerPool(2)
 		ctx := context.Background()
-		
+
 		// Submit tasks that check for cancellation
 		var canceled atomic.Int32
 		for i := 0; i < 3; i++ {
@@ -420,12 +421,12 @@ func TestPool_StopWithContext(t *testing.T) {
 			})
 			require.NoError(t, err)
 		}
-		
+
 		time.Sleep(20 * time.Millisecond) // Let tasks start
-		
+
 		stopCtx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 		defer cancel()
-		
+
 		err := p.StopWithContext(stopCtx)
 		require.NoError(t, err)
 		assert.True(t, p.IsStopped())
@@ -438,7 +439,7 @@ func TestPool_Tasks(t *testing.T) {
 	t.Run("returns copy of all submitted tasks", func(t *testing.T) {
 		p := NewWorkerPool(2)
 		ctx := context.Background()
-		
+
 		for i := 0; i < 5; i++ {
 			_, err := p.Submit(ctx, task.Definition{
 				TaskFn: func(r *task.Run) error {
@@ -448,10 +449,10 @@ func TestPool_Tasks(t *testing.T) {
 			})
 			require.NoError(t, err)
 		}
-		
+
 		tasks := p.Tasks()
 		assert.Len(t, tasks, 5)
-		
+
 		p.Wait()
 	})
 }
@@ -460,10 +461,10 @@ func TestPool_Stats(t *testing.T) {
 	t.Run("returns accurate statistics", func(t *testing.T) {
 		p := NewWorkerPool(2)
 		ctx := context.Background()
-		
+
 		// Submit mix of tasks
 		blocker := make(chan struct{})
-		
+
 		// Running tasks
 		for i := 0; i < 2; i++ {
 			_, err := p.Submit(ctx, task.Definition{
@@ -474,44 +475,44 @@ func TestPool_Stats(t *testing.T) {
 			})
 			require.NoError(t, err)
 		}
-		
+
 		time.Sleep(50 * time.Millisecond) // Let tasks start
-		
+
 		stats := p.Stats()
 		assert.Equal(t, 2, stats.Total)
 		assert.Equal(t, 2, stats.MaxWorkers)
 		assert.Equal(t, 2, stats.ActiveWorkers)
 		assert.Equal(t, 2, stats.Started)
-		
+
 		close(blocker)
 		p.Wait()
-		
+
 		// Give a moment for semaphore release to complete
 		time.Sleep(10 * time.Millisecond)
-		
+
 		stats = p.Stats()
 		assert.Equal(t, 2, stats.Done)
 		assert.Equal(t, 0, stats.ActiveWorkers)
 	})
-	
+
 	t.Run("tracks failed and canceled tasks", func(t *testing.T) {
 		p := NewWorkerPool(3)
 		ctx := context.Background()
-		
+
 		// Successful task
 		_, _ = p.Submit(ctx, task.Definition{
 			TaskFn: func(r *task.Run) error {
 				return nil
 			},
 		})
-		
+
 		// Failed task
 		_, _ = p.Submit(ctx, task.Definition{
 			TaskFn: func(r *task.Run) error {
 				return errors.New("failed")
 			},
 		})
-		
+
 		// Canceled task
 		cancelCtx, cancel := context.WithCancel(context.Background())
 		tk, _ := p.Submit(cancelCtx, task.Definition{
@@ -522,9 +523,9 @@ func TestPool_Stats(t *testing.T) {
 		})
 		cancel()
 		tk.Await()
-		
+
 		p.Wait()
-		
+
 		stats := p.Stats()
 		assert.Equal(t, 3, stats.Total)
 		assert.Equal(t, 1, stats.Done)
@@ -537,10 +538,10 @@ func TestPool_ConcurrentAccess(t *testing.T) {
 	t.Run("handles concurrent submissions safely", func(t *testing.T) {
 		p := NewWorkerPool(10)
 		ctx := context.Background()
-		
+
 		var wg sync.WaitGroup
 		submissionCount := 100
-		
+
 		for i := 0; i < submissionCount; i++ {
 			wg.Add(1)
 			go func() {
@@ -554,19 +555,19 @@ func TestPool_ConcurrentAccess(t *testing.T) {
 				assert.NoError(t, err)
 			}()
 		}
-		
+
 		wg.Wait()
 		p.Wait()
-		
+
 		stats := p.Stats()
 		assert.Equal(t, submissionCount, stats.Total)
 		assert.Equal(t, submissionCount, stats.Done)
 	})
-	
+
 	t.Run("concurrent queries are safe", func(t *testing.T) {
 		p := NewWorkerPool(5)
 		ctx := context.Background()
-		
+
 		// Submit some tasks
 		for i := 0; i < 10; i++ {
 			_, _ = p.Submit(ctx, task.Definition{
@@ -576,7 +577,7 @@ func TestPool_ConcurrentAccess(t *testing.T) {
 				},
 			})
 		}
-		
+
 		var wg sync.WaitGroup
 		for i := 0; i < 50; i++ {
 			wg.Add(1)
@@ -590,7 +591,7 @@ func TestPool_ConcurrentAccess(t *testing.T) {
 				_ = p.Tasks()
 			}()
 		}
-		
+
 		wg.Wait()
 		p.Wait()
 	})
@@ -600,11 +601,11 @@ func TestPool_RealWorldScenario(t *testing.T) {
 	t.Run("processes batch of HTTP-like requests", func(t *testing.T) {
 		p := NewWorkerPool(5)
 		ctx := context.Background()
-		
+
 		requestCount := 50
 		var processedCount atomic.Int32
 		var maxConcurrent atomic.Int32
-		
+
 		for i := 0; i < requestCount; i++ {
 			_, err := p.Submit(ctx, task.Definition{
 				TaskFn: func(r *task.Run) error {
@@ -616,7 +617,7 @@ func TestPool_RealWorldScenario(t *testing.T) {
 							break
 						}
 					}
-					
+
 					// Simulate HTTP request processing
 					time.Sleep(10 * time.Millisecond)
 					processedCount.Add(1)
@@ -625,12 +626,12 @@ func TestPool_RealWorldScenario(t *testing.T) {
 			})
 			require.NoError(t, err)
 		}
-		
+
 		p.Wait()
-		
+
 		assert.Equal(t, int32(requestCount), processedCount.Load())
 		assert.LessOrEqual(t, int(maxConcurrent.Load()), 5)
-		
+
 		stats := p.Stats()
 		assert.Equal(t, requestCount, stats.Done)
 	})
@@ -640,7 +641,7 @@ func TestPool_RealWorldScenario(t *testing.T) {
 func BenchmarkPool_Submit(b *testing.B) {
 	p := NewWorkerPool(100)
 	ctx := context.Background()
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_, _ = p.Submit(ctx, task.Definition{
@@ -649,14 +650,14 @@ func BenchmarkPool_Submit(b *testing.B) {
 			},
 		})
 	}
-	
+
 	p.Wait()
 }
 
 func BenchmarkPool_Stats(b *testing.B) {
 	p := NewWorkerPool(10)
 	ctx := context.Background()
-	
+
 	// Submit some tasks
 	for i := 0; i < 100; i++ {
 		_, _ = p.Submit(ctx, task.Definition{
@@ -666,19 +667,19 @@ func BenchmarkPool_Stats(b *testing.B) {
 			},
 		})
 	}
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = p.Stats()
 	}
-	
+
 	p.Wait()
 }
 
 func BenchmarkPool_ConcurrentSubmit(b *testing.B) {
 	p := NewWorkerPool(50)
 	ctx := context.Background()
-	
+
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
@@ -689,6 +690,6 @@ func BenchmarkPool_ConcurrentSubmit(b *testing.B) {
 			})
 		}
 	})
-	
+
 	p.Wait()
 }

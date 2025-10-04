@@ -4,21 +4,21 @@ import (
 	"context"
 	"sync"
 	"sync/atomic"
-	
-	"github.com/barnowlsnest/go-asynctasklib/pkg/task"
+
 	"golang.org/x/sync/errgroup"
+
+	"github.com/barnowlsnest/go-asynctasklib/pkg/task"
 )
 
 type (
 	Pool struct {
-		sem         *Semaphore
-		mu          sync.Mutex
-		tasks       []*task.Task
-		taskCounter atomic.Uint64
-		stopped     atomic.Bool
-		releaseWg   sync.WaitGroup
+		sem       *Semaphore
+		mu        sync.Mutex
+		tasks     []*task.Task
+		stopped   atomic.Bool
+		releaseWg sync.WaitGroup
 	}
-	
+
 	PoolConfig struct {
 		MaxWorkers int
 		Hooks      *task.StateHooks
@@ -35,7 +35,7 @@ func NewWorkerPoolWithConfig(cfg PoolConfig) *Pool {
 	if cfg.MaxWorkers <= 0 {
 		cfg.MaxWorkers = 1
 	}
-	
+
 	return &Pool{
 		sem:   NewSemaphore(cfg.MaxWorkers),
 		tasks: make([]*task.Task, 0),
@@ -46,38 +46,38 @@ func (p *Pool) Submit(ctx context.Context, def task.Definition) (*task.Task, err
 	if p.stopped.Load() {
 		return nil, ErrPoolStopped
 	}
-	
+
 	t := task.New(def)
-	
+
 	// Add to the task list and increment release wait group under lock
 	p.mu.Lock()
 	p.tasks = append(p.tasks, t)
 	p.releaseWg.Add(1)
 	p.mu.Unlock()
-	
+
 	// Acquire semaphore slot (blocks until worker available)
 	p.sem.Acquire()
-	
+
 	// Start the task
 	if err := t.Go(ctx); err != nil {
 		p.sem.Release()
 		p.releaseWg.Done()
 		return t, err
 	}
-	
+
 	// Release semaphore when task completes
 	go func() {
 		defer p.sem.Release()
 		defer p.releaseWg.Done()
 		t.Await()
 	}()
-	
+
 	return t, nil
 }
 
 func (p *Pool) SubmitWithErrGroup(ctx context.Context, defs []task.Definition) error {
 	g, errCtx := errgroup.WithContext(ctx)
-	
+
 	for _, def := range defs {
 		d := def
 		g.Go(func() error {
@@ -85,23 +85,23 @@ func (p *Pool) SubmitWithErrGroup(ctx context.Context, defs []task.Definition) e
 			if err != nil {
 				return err
 			}
-			
+
 			t.Await()
-			
+
 			if t.IsFailed() {
 				return t.Err()
 			}
-			
+
 			return nil
 		})
 	}
-	
+
 	return g.Wait()
 }
 
 func (p *Pool) SubmitBatch(ctx context.Context, defs []task.Definition) ([]*task.Task, error) {
 	tasks := make([]*task.Task, 0, len(defs))
-	
+
 	for _, def := range defs {
 		t, err := p.Submit(ctx, def)
 		if err != nil {
@@ -109,7 +109,7 @@ func (p *Pool) SubmitBatch(ctx context.Context, defs []task.Definition) ([]*task
 		}
 		tasks = append(tasks, t)
 	}
-	
+
 	return tasks, nil
 }
 
@@ -118,23 +118,23 @@ func (p *Pool) Wait() {
 	tasksCopy := make([]*task.Task, len(p.tasks))
 	copy(tasksCopy, p.tasks)
 	p.mu.Unlock()
-	
+
 	for _, t := range tasksCopy {
 		t.Await()
 	}
-	
+
 	// Wait for all semaphore release goroutines to complete
 	p.releaseWg.Wait()
 }
 
 func (p *Pool) WaitWithContext(ctx context.Context) error {
 	done := make(chan struct{})
-	
+
 	go func() {
 		p.Wait()
 		close(done)
 	}()
-	
+
 	select {
 	case <-done:
 		return nil
@@ -149,25 +149,25 @@ func (p *Pool) Stop() {
 
 func (p *Pool) StopWithContext(ctx context.Context) error {
 	p.Stop()
-	
+
 	p.mu.Lock()
 	tasksCopy := make([]*task.Task, len(p.tasks))
 	copy(tasksCopy, p.tasks)
 	p.mu.Unlock()
-	
+
 	for _, t := range tasksCopy {
 		if t.IsInProgress() {
 			t.Cancel()
 		}
 	}
-	
+
 	return p.WaitWithContext(ctx)
 }
 
 func (p *Pool) Tasks() []*task.Task {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	
+
 	tasksCopy := make([]*task.Task, len(p.tasks))
 	copy(tasksCopy, p.tasks)
 	return tasksCopy
@@ -197,14 +197,14 @@ func (p *Pool) IsStopped() bool {
 func (p *Pool) Stats() PoolStats {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	
+
 	stats := PoolStats{
 		Total:         len(p.tasks),
 		MaxWorkers:    p.MaxWorkers(),
 		ActiveWorkers: p.ActiveWorkers(),
 		Stopped:       p.IsStopped(),
 	}
-	
+
 	for _, t := range p.tasks {
 		switch {
 		case t.IsCreated():
@@ -221,7 +221,7 @@ func (p *Pool) Stats() PoolStats {
 			stats.Canceled++
 		}
 	}
-	
+
 	return stats
 }
 

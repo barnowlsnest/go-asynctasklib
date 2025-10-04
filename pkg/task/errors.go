@@ -5,7 +5,7 @@ import (
 )
 
 var (
-	ErrCancelledTask      = errors.New("task was cancelled")
+	ErrCancelledTask      = errors.New("task was canceled")
 	ErrTaskTimeout        = errors.New("task run timeout")
 	ErrNilCtx             = errors.New("context cannot be nil")
 	ErrTaskInProgress     = errors.New("task is already in progress")

@@ -114,7 +114,6 @@ func WhenCanceled(fn func(string, time.Time)) StateHookOpt {
 }
 
 func catchPanic() {
-	if r := recover(); r != nil {
-		// silently ignore panics in hooks
-	}
+	// silently ignore panics in hooks
+	_ = recover()
 }

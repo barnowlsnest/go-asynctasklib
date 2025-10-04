@@ -536,7 +536,7 @@ func TestSemaphore_WorkerPool(t *testing.T) {
 		var wg sync.WaitGroup
 		for i := 0; i < taskCount; i++ {
 			wg.Add(1)
-			go func(taskID int) {
+			go func() {
 				defer wg.Done()
 
 				s.Acquire()
@@ -554,7 +554,7 @@ func TestSemaphore_WorkerPool(t *testing.T) {
 				// Simulate work
 				time.Sleep(time.Millisecond)
 				completedTasks.Add(1)
-			}(i)
+			}()
 		}
 
 		wg.Wait()
