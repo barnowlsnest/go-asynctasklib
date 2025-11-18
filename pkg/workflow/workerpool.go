@@ -49,10 +49,9 @@ func (p *Pool) Submit(ctx context.Context, def task.Definition) (*task.Task, err
 
 	t := task.New(def)
 
-	// Add to the task list and increment release wait group under lock
+	// Add to the task list under lock
 	p.mu.Lock()
 	p.tasks = append(p.tasks, t)
-	p.releaseWg.Add(1)
 	p.mu.Unlock()
 
 	// Acquire semaphore slot (blocks until worker available)
@@ -61,16 +60,14 @@ func (p *Pool) Submit(ctx context.Context, def task.Definition) (*task.Task, err
 	// Start the task
 	if err := t.Go(ctx); err != nil {
 		p.sem.Release()
-		p.releaseWg.Done()
 		return t, err
 	}
 
 	// Release semaphore when task completes
-	go func() {
+	p.releaseWg.Go(func() {
 		defer p.sem.Release()
-		defer p.releaseWg.Done()
 		t.Await()
-	}()
+	})
 
 	return t, nil
 }
