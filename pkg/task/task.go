@@ -182,16 +182,14 @@ func (t *Task) Go(ctx context.Context) error {
 		t.mu.Lock()
 		t.cancel = cancel
 		t.mu.Unlock()
-		t.wg.Add(1)
 
-		go func() {
-			defer t.wg.Done()
+		t.wg.Go(func() {
 			if err := t.run(compCtx); err != nil {
 				t.mu.Lock()
 				t.err = err
 				t.mu.Unlock()
 			}
-		}()
+		})
 
 		t.started()
 
