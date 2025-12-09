@@ -1,4 +1,4 @@
-module github.com/dshlychkou/go-asynctasklib
+module github.com/barnowlsnest/go-asynctasklib
 
 go 1.25
 
