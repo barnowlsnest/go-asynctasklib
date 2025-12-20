@@ -116,12 +116,13 @@ func (p *Pool) Wait() {
 	copy(tasksCopy, p.tasks)
 	p.mu.Unlock()
 
+	wg := sync.WaitGroup{}
 	for _, t := range tasksCopy {
-		t.Await()
+		wg.Go(t.Await)
 	}
 
-	// Wait for all semaphore release goroutines to complete
-	p.releaseWg.Wait()
+	wg.Go(p.releaseWg.Wait)
+	wg.Wait()
 }
 
 func (p *Pool) WaitWithContext(ctx context.Context) error {
