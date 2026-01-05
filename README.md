@@ -4,7 +4,7 @@
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Coverage](https://img.shields.io/badge/coverage-96%25-brightgreen.svg)](https://github.com/barnowlsnest/go-asynctasklib)
 
-A production-ready Go library for managing asynchronous tasks with context-aware execution, automatic retries, state hooks, and worker pool orchestration.
+Simple Go library for managing asynchronous tasks with context-aware execution, automatic retries, state hooks, and worker pool orchestration.
 
 ## Features
 
@@ -27,6 +27,8 @@ A production-ready Go library for managing asynchronous tasks with context-aware
 - **Graceful Shutdown**: Context-aware stopping with proper cleanup
 
 ## Installation
+
+go 1.25 or later
 
 ```bash
 go get github.com/barnowlsnest/go-asynctasklib
@@ -292,42 +294,6 @@ type Definition struct {
 - `Release()` - Release a slot
 - `Limit()`, `Available()`, `Acquired()` - Query semaphore state
 
-## Development
-
-### Prerequisites
-
-- Go 1.24.5 or higher
-- [Task](https://taskfile.dev) (optional, but recommended)
-
-### Running Tests
-
-```bash
-# Using Task
-task go-test
-
-# Or directly with go
-go test -cover ./...
-```
-
-### Code Quality
-
-```bash
-# Run all checks (fmt, vet, lint, test)
-task sanity
-
-# Individual commands
-task go-fmt      # Format code
-task go-vet      # Run go vet
-task go-lint     # Run golangci-lint
-```
-
-## Test Coverage
-
-- **Task Package**: 96% coverage
-- **Workflow Package**: 98% coverage
-
-All tests pass with race detection enabled (`-race` flag).
-
 ## Architecture
 
 ### Synchronization Patterns
@@ -346,15 +312,6 @@ The library uses several synchronization primitives:
 3. **Memory Safety**: Careful struct field ordering for optimal alignment
 4. **Error Transparency**: Structured errors with clear semantics
 5. **Zero Dependencies**: Only uses `golang.org/x/sync` for errgroup
-
-## Contributing
-
-Contributions are welcome! Please ensure:
-
-1. All tests pass: `task go-test`
-2. Code is formatted: `task go-fmt`
-3. No linter issues: `task go-lint`
-4. Race detector passes: `go test -race ./...`
 
 ## License
 
