@@ -14,44 +14,40 @@ import (
 	"github.com/barnowlsnest/go-asynctasklib/pkg/task"
 )
 
-func TestNewWorkerPool(t *testing.T) {
+func TestNewTaskGroup(t *testing.T) {
 	t.Run("creates pool with specified max workers", func(t *testing.T) {
-		p := NewWorkerPool(5)
-		require.NotNil(t, p)
-		assert.Equal(t, 5, p.MaxWorkers())
-		assert.Equal(t, 5, p.AvailableWorkers())
-		assert.Equal(t, 0, p.ActiveWorkers())
-		assert.False(t, p.IsStopped())
+		tg, err := NewTaskGroup(5)
+		require.NoError(t, err)
+		require.NotNil(t, tg)
+		assert.Equal(t, 5, tg.MaxWorkers())
+		assert.Equal(t, 5, tg.AvailableWorkers())
+		assert.Equal(t, 0, tg.ActiveWorkers())
+		assert.False(t, tg.IsStopped())
 	})
 
-	t.Run("creates pool with minimum 1 worker when invalid", func(t *testing.T) {
-		p := NewWorkerPool(0)
-		require.NotNil(t, p)
-		assert.Equal(t, 1, p.MaxWorkers())
-
-		p = NewWorkerPool(-5)
-		require.NotNil(t, p)
-		assert.Equal(t, 1, p.MaxWorkers())
+	t.Run("returns error when maxWorkers is zero", func(t *testing.T) {
+		tg, err := NewTaskGroup(0)
+		assert.Error(t, err)
+		assert.Equal(t, ErrMaxWorkers, err)
+		assert.Nil(t, tg)
 	})
-}
 
-func TestNewWorkerPoolWithConfig(t *testing.T) {
-	t.Run("creates pool with config", func(t *testing.T) {
-		p := NewWorkerPoolWithConfig(PoolConfig{
-			MaxWorkers: 10,
-		})
-		require.NotNil(t, p)
-		assert.Equal(t, 10, p.MaxWorkers())
+	t.Run("returns error when maxWorkers is negative", func(t *testing.T) {
+		tg, err := NewTaskGroup(-5)
+		assert.Error(t, err)
+		assert.Equal(t, ErrMaxWorkers, err)
+		assert.Nil(t, tg)
 	})
 }
 
-func TestPool_Submit(t *testing.T) {
+func TestTaskGroup_Submit(t *testing.T) {
 	t.Run("submits and executes task successfully", func(t *testing.T) {
-		p := NewWorkerPool(2)
+		tg, err := NewTaskGroup(2)
+		require.NoError(t, err)
 		ctx := context.Background()
 		executed := false
 
-		tk, err := p.Submit(ctx, task.Definition{
+		tk, err := tg.Submit(ctx, task.Definition{
 			ID: "test-task",
 			TaskFn: func(r *task.Run) error {
 				executed = true
@@ -69,13 +65,14 @@ func TestPool_Submit(t *testing.T) {
 	})
 
 	t.Run("respects max workers limit", func(t *testing.T) {
-		p := NewWorkerPool(2)
+		tg, err := NewTaskGroup(2)
+		require.NoError(t, err)
 		ctx := context.Background()
 
 		// Submit 2 tasks that will block
 		blocker := make(chan struct{})
 		for i := 0; i < 2; i++ {
-			_, err := p.Submit(ctx, task.Definition{
+			_, err := tg.Submit(ctx, task.Definition{
 				TaskFn: func(r *task.Run) error {
 					<-blocker
 					return nil
@@ -86,13 +83,13 @@ func TestPool_Submit(t *testing.T) {
 
 		// Wait for tasks to start
 		time.Sleep(50 * time.Millisecond)
-		assert.Equal(t, 2, p.ActiveWorkers())
-		assert.Equal(t, 0, p.AvailableWorkers())
+		assert.Equal(t, 2, tg.ActiveWorkers())
+		assert.Equal(t, 0, tg.AvailableWorkers())
 
 		// Third task should block until a worker is available
 		submitted := make(chan bool)
 		go func() {
-			_, err := p.Submit(ctx, task.Definition{
+			_, err := tg.Submit(ctx, task.Definition{
 				TaskFn: func(r *task.Run) error {
 					return nil
 				},
@@ -120,15 +117,16 @@ func TestPool_Submit(t *testing.T) {
 			t.Fatal("Task should have been submitted after workers became available")
 		}
 
-		p.Wait()
+		tg.Wait()
 	})
 
 	t.Run("returns error when pool is stopped", func(t *testing.T) {
-		p := NewWorkerPool(2)
+		tg, err := NewTaskGroup(2)
+		require.NoError(t, err)
 		ctx := context.Background()
-		p.Stop()
+		tg.Stop()
 
-		tk, err := p.Submit(ctx, task.Definition{
+		tk, err := tg.Submit(ctx, task.Definition{
 			TaskFn: func(r *task.Run) error {
 				return nil
 			},
@@ -140,11 +138,12 @@ func TestPool_Submit(t *testing.T) {
 	})
 
 	t.Run("handles task errors", func(t *testing.T) {
-		p := NewWorkerPool(2)
+		tg, err := NewTaskGroup(2)
+		require.NoError(t, err)
 		ctx := context.Background()
 		expectedErr := errors.New("task error")
 
-		tk, err := p.Submit(ctx, task.Definition{
+		tk, err := tg.Submit(ctx, task.Definition{
 			TaskFn: func(r *task.Run) error {
 				return expectedErr
 			},
@@ -158,9 +157,10 @@ func TestPool_Submit(t *testing.T) {
 	})
 }
 
-func TestPool_SubmitWithErrGroup(t *testing.T) {
+func TestTaskGroup_SubmitWithErrGroup(t *testing.T) {
 	t.Run("executes all tasks successfully", func(t *testing.T) {
-		p := NewWorkerPool(3)
+		tg, err := NewTaskGroup(3)
+		require.NoError(t, err)
 		ctx := context.Background()
 
 		var counter atomic.Int32
@@ -175,13 +175,14 @@ func TestPool_SubmitWithErrGroup(t *testing.T) {
 			}
 		}
 
-		err := p.SubmitWithErrGroup(ctx, defs)
+		err = tg.SubmitWithErrGroup(ctx, defs)
 		require.NoError(t, err)
 		assert.Equal(t, int32(10), counter.Load())
 	})
 
 	t.Run("returns first error and cancels remaining tasks", func(t *testing.T) {
-		p := NewWorkerPool(3)
+		tg, err := NewTaskGroup(3)
+		require.NoError(t, err)
 		ctx := context.Background()
 
 		expectedErr := errors.New("task failed")
@@ -209,13 +210,14 @@ func TestPool_SubmitWithErrGroup(t *testing.T) {
 			},
 		}
 
-		err := p.SubmitWithErrGroup(ctx, defs)
+		err = tg.SubmitWithErrGroup(ctx, defs)
 		assert.Error(t, err)
 		assert.Equal(t, expectedErr, err)
 	})
 
 	t.Run("respects context cancellation", func(t *testing.T) {
-		p := NewWorkerPool(2)
+		tg, err := NewTaskGroup(2)
+		require.NoError(t, err)
 		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 		defer cancel()
 
@@ -229,14 +231,15 @@ func TestPool_SubmitWithErrGroup(t *testing.T) {
 			}
 		}
 
-		err := p.SubmitWithErrGroup(ctx, defs)
+		err = tg.SubmitWithErrGroup(ctx, defs)
 		assert.Error(t, err)
 	})
 }
 
-func TestPool_SubmitBatch(t *testing.T) {
+func TestTaskGroup_SubmitBatch(t *testing.T) {
 	t.Run("submits multiple tasks and returns all", func(t *testing.T) {
-		p := NewWorkerPool(5)
+		tg, err := NewTaskGroup(5)
+		require.NoError(t, err)
 		ctx := context.Background()
 
 		defs := make([]task.Definition, 10)
@@ -249,7 +252,7 @@ func TestPool_SubmitBatch(t *testing.T) {
 			}
 		}
 
-		tasks, err := p.SubmitBatch(ctx, defs)
+		tasks, err := tg.SubmitBatch(ctx, defs)
 		require.NoError(t, err)
 		assert.Len(t, tasks, 10)
 
@@ -260,28 +263,30 @@ func TestPool_SubmitBatch(t *testing.T) {
 	})
 
 	t.Run("returns error if pool is stopped", func(t *testing.T) {
-		p := NewWorkerPool(2)
+		tg, err := NewTaskGroup(2)
+		require.NoError(t, err)
 		ctx := context.Background()
-		p.Stop()
+		tg.Stop()
 
 		defs := []task.Definition{
 			{TaskFn: func(r *task.Run) error { return nil }},
 		}
 
-		tasks, err := p.SubmitBatch(ctx, defs)
+		tasks, err := tg.SubmitBatch(ctx, defs)
 		assert.Error(t, err)
 		assert.Empty(t, tasks)
 	})
 }
 
-func TestPool_Wait(t *testing.T) {
+func TestTaskGroup_Wait(t *testing.T) {
 	t.Run("waits for all tasks to complete", func(t *testing.T) {
-		p := NewWorkerPool(3)
+		tg, err := NewTaskGroup(3)
+		require.NoError(t, err)
 		ctx := context.Background()
 
 		var counter atomic.Int32
 		for i := 0; i < 10; i++ {
-			_, err := p.Submit(ctx, task.Definition{
+			_, err := tg.Submit(ctx, task.Definition{
 				TaskFn: func(r *task.Run) error {
 					time.Sleep(10 * time.Millisecond)
 					counter.Add(1)
@@ -291,19 +296,20 @@ func TestPool_Wait(t *testing.T) {
 			require.NoError(t, err)
 		}
 
-		p.Wait()
+		tg.Wait()
 		assert.Equal(t, int32(10), counter.Load())
-		assert.Equal(t, 0, p.ActiveWorkers())
+		assert.Equal(t, 0, tg.ActiveWorkers())
 	})
 }
 
-func TestPool_WaitWithContext(t *testing.T) {
+func TestTaskGroup_WaitWithContext(t *testing.T) {
 	t.Run("waits successfully when tasks complete", func(t *testing.T) {
-		p := NewWorkerPool(2)
+		tg, err := NewTaskGroup(2)
+		require.NoError(t, err)
 		ctx := context.Background()
 
 		for i := 0; i < 5; i++ {
-			_, err := p.Submit(ctx, task.Definition{
+			_, err := tg.Submit(ctx, task.Definition{
 				TaskFn: func(r *task.Run) error {
 					time.Sleep(10 * time.Millisecond)
 					return nil
@@ -315,16 +321,17 @@ func TestPool_WaitWithContext(t *testing.T) {
 		waitCtx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 		defer cancel()
 
-		err := p.WaitWithContext(waitCtx)
+		err = tg.WaitWithContext(waitCtx)
 		require.NoError(t, err)
 	})
 
 	t.Run("returns error when context times out", func(t *testing.T) {
-		p := NewWorkerPool(1)
+		tg, err := NewTaskGroup(1)
+		require.NoError(t, err)
 		ctx := context.Background()
 
 		// Submit a long-running task
-		_, err := p.Submit(ctx, task.Definition{
+		_, err = tg.Submit(ctx, task.Definition{
 			TaskFn: func(r *task.Run) error {
 				time.Sleep(200 * time.Millisecond)
 				return nil
@@ -335,19 +342,20 @@ func TestPool_WaitWithContext(t *testing.T) {
 		waitCtx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 		defer cancel()
 
-		err = p.WaitWithContext(waitCtx)
+		err = tg.WaitWithContext(waitCtx)
 		assert.Error(t, err)
 		assert.Equal(t, context.DeadlineExceeded, err)
 	})
 }
 
-func TestPool_Stop(t *testing.T) {
+func TestTaskGroup_Stop(t *testing.T) {
 	t.Run("stops pool and prevents new submissions", func(t *testing.T) {
-		p := NewWorkerPool(2)
+		tg, err := NewTaskGroup(2)
+		require.NoError(t, err)
 		ctx := context.Background()
 
 		// Submit a task
-		_, err := p.Submit(ctx, task.Definition{
+		_, err = tg.Submit(ctx, task.Definition{
 			TaskFn: func(r *task.Run) error {
 				time.Sleep(50 * time.Millisecond)
 				return nil
@@ -355,11 +363,11 @@ func TestPool_Stop(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		p.Stop()
-		assert.True(t, p.IsStopped())
+		tg.Stop()
+		assert.True(t, tg.IsStopped())
 
 		// Try to submit after stop
-		_, err = p.Submit(ctx, task.Definition{
+		_, err = tg.Submit(ctx, task.Definition{
 			TaskFn: func(r *task.Run) error {
 				return nil
 			},
@@ -369,14 +377,15 @@ func TestPool_Stop(t *testing.T) {
 	})
 }
 
-func TestPool_StopWithContext(t *testing.T) {
+func TestTaskGroup_StopWithContext(t *testing.T) {
 	t.Run("stops pool and cancels running tasks", func(t *testing.T) {
-		p := NewWorkerPool(2)
+		tg, err := NewTaskGroup(2)
+		require.NoError(t, err)
 		ctx := context.Background()
 
 		var canceledCount atomic.Int32
 		for i := 0; i < 3; i++ {
-			_, err := p.Submit(ctx, task.Definition{
+			_, err := tg.Submit(ctx, task.Definition{
 				TaskFn: func(r *task.Run) error {
 					select {
 					case <-r.Context().Done():
@@ -395,20 +404,21 @@ func TestPool_StopWithContext(t *testing.T) {
 		stopCtx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 		defer cancel()
 
-		err := p.StopWithContext(stopCtx)
+		err = tg.StopWithContext(stopCtx)
 		require.NoError(t, err)
-		assert.True(t, p.IsStopped())
+		assert.True(t, tg.IsStopped())
 		assert.Greater(t, int(canceledCount.Load()), 0)
 	})
 
 	t.Run("cancels running tasks when stopped", func(t *testing.T) {
-		p := NewWorkerPool(2)
+		tg, err := NewTaskGroup(2)
+		require.NoError(t, err)
 		ctx := context.Background()
 
 		// Submit tasks that check for cancellation
 		var canceled atomic.Int32
 		for i := 0; i < 3; i++ {
-			_, err := p.Submit(ctx, task.Definition{
+			_, err := tg.Submit(ctx, task.Definition{
 				TaskFn: func(r *task.Run) error {
 					select {
 					case <-r.Context().Done():
@@ -427,21 +437,22 @@ func TestPool_StopWithContext(t *testing.T) {
 		stopCtx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 		defer cancel()
 
-		err := p.StopWithContext(stopCtx)
+		err = tg.StopWithContext(stopCtx)
 		require.NoError(t, err)
-		assert.True(t, p.IsStopped())
+		assert.True(t, tg.IsStopped())
 		// At least some tasks should have been canceled
 		assert.Greater(t, int(canceled.Load()), 0)
 	})
 }
 
-func TestPool_Tasks(t *testing.T) {
+func TestTaskGroup_Tasks(t *testing.T) {
 	t.Run("returns copy of all submitted tasks", func(t *testing.T) {
-		p := NewWorkerPool(2)
+		tg, err := NewTaskGroup(2)
+		require.NoError(t, err)
 		ctx := context.Background()
 
 		for i := 0; i < 5; i++ {
-			_, err := p.Submit(ctx, task.Definition{
+			_, err := tg.Submit(ctx, task.Definition{
 				TaskFn: func(r *task.Run) error {
 					time.Sleep(10 * time.Millisecond)
 					return nil
@@ -450,16 +461,17 @@ func TestPool_Tasks(t *testing.T) {
 			require.NoError(t, err)
 		}
 
-		tasks := p.Tasks()
+		tasks := tg.Tasks()
 		assert.Len(t, tasks, 5)
 
-		p.Wait()
+		tg.Wait()
 	})
 }
 
-func TestPool_Stats(t *testing.T) {
+func TestTaskGroup_Stats(t *testing.T) {
 	t.Run("returns accurate statistics", func(t *testing.T) {
-		p := NewWorkerPool(2)
+		tg, err := NewTaskGroup(2)
+		require.NoError(t, err)
 		ctx := context.Background()
 
 		// Submit mix of tasks
@@ -467,7 +479,7 @@ func TestPool_Stats(t *testing.T) {
 
 		// Running tasks
 		for i := 0; i < 2; i++ {
-			_, err := p.Submit(ctx, task.Definition{
+			_, err := tg.Submit(ctx, task.Definition{
 				TaskFn: func(r *task.Run) error {
 					<-blocker
 					return nil
@@ -478,36 +490,37 @@ func TestPool_Stats(t *testing.T) {
 
 		time.Sleep(50 * time.Millisecond) // Let tasks start
 
-		stats := p.Stats()
+		stats := tg.Stats()
 		assert.Equal(t, 2, stats.Total)
 		assert.Equal(t, 2, stats.MaxWorkers)
 		assert.Equal(t, 2, stats.ActiveWorkers)
 		assert.Equal(t, 2, stats.Started)
 
 		close(blocker)
-		p.Wait()
+		tg.Wait()
 
 		// Give a moment for semaphore release to complete
 		time.Sleep(10 * time.Millisecond)
 
-		stats = p.Stats()
+		stats = tg.Stats()
 		assert.Equal(t, 2, stats.Done)
 		assert.Equal(t, 0, stats.ActiveWorkers)
 	})
 
 	t.Run("tracks failed and canceled tasks", func(t *testing.T) {
-		p := NewWorkerPool(3)
+		tg, err := NewTaskGroup(3)
+		require.NoError(t, err)
 		ctx := context.Background()
 
 		// Successful task
-		_, _ = p.Submit(ctx, task.Definition{
+		_, _ = tg.Submit(ctx, task.Definition{
 			TaskFn: func(r *task.Run) error {
 				return nil
 			},
 		})
 
 		// Failed task
-		_, _ = p.Submit(ctx, task.Definition{
+		_, _ = tg.Submit(ctx, task.Definition{
 			TaskFn: func(r *task.Run) error {
 				return errors.New("failed")
 			},
@@ -515,7 +528,7 @@ func TestPool_Stats(t *testing.T) {
 
 		// Canceled task
 		cancelCtx, cancel := context.WithCancel(context.Background())
-		tk, _ := p.Submit(cancelCtx, task.Definition{
+		tk, _ := tg.Submit(cancelCtx, task.Definition{
 			TaskFn: func(r *task.Run) error {
 				time.Sleep(100 * time.Millisecond)
 				return nil
@@ -524,9 +537,9 @@ func TestPool_Stats(t *testing.T) {
 		cancel()
 		tk.Await()
 
-		p.Wait()
+		tg.Wait()
 
-		stats := p.Stats()
+		stats := tg.Stats()
 		assert.Equal(t, 3, stats.Total)
 		assert.Equal(t, 1, stats.Done)
 		assert.Equal(t, 1, stats.Failed)
@@ -534,9 +547,10 @@ func TestPool_Stats(t *testing.T) {
 	})
 }
 
-func TestPool_ConcurrentAccess(t *testing.T) {
+func TestTaskGroup_ConcurrentAccess(t *testing.T) {
 	t.Run("handles concurrent submissions safely", func(t *testing.T) {
-		p := NewWorkerPool(10)
+		tg, err := NewTaskGroup(10)
+		require.NoError(t, err)
 		ctx := context.Background()
 
 		var wg sync.WaitGroup
@@ -546,7 +560,7 @@ func TestPool_ConcurrentAccess(t *testing.T) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				_, err := p.Submit(ctx, task.Definition{
+				_, err := tg.Submit(ctx, task.Definition{
 					TaskFn: func(r *task.Run) error {
 						time.Sleep(time.Millisecond)
 						return nil
@@ -557,20 +571,21 @@ func TestPool_ConcurrentAccess(t *testing.T) {
 		}
 
 		wg.Wait()
-		p.Wait()
+		tg.Wait()
 
-		stats := p.Stats()
+		stats := tg.Stats()
 		assert.Equal(t, submissionCount, stats.Total)
 		assert.Equal(t, submissionCount, stats.Done)
 	})
 
 	t.Run("concurrent queries are safe", func(t *testing.T) {
-		p := NewWorkerPool(5)
+		tg, err := NewTaskGroup(5)
+		require.NoError(t, err)
 		ctx := context.Background()
 
 		// Submit some tasks
 		for i := 0; i < 10; i++ {
-			_, _ = p.Submit(ctx, task.Definition{
+			_, _ = tg.Submit(ctx, task.Definition{
 				TaskFn: func(r *task.Run) error {
 					time.Sleep(10 * time.Millisecond)
 					return nil
@@ -583,23 +598,24 @@ func TestPool_ConcurrentAccess(t *testing.T) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				_ = p.MaxWorkers()
-				_ = p.ActiveWorkers()
-				_ = p.AvailableWorkers()
-				_ = p.IsStopped()
-				_ = p.Stats()
-				_ = p.Tasks()
+				_ = tg.MaxWorkers()
+				_ = tg.ActiveWorkers()
+				_ = tg.AvailableWorkers()
+				_ = tg.IsStopped()
+				_ = tg.Stats()
+				_ = tg.Tasks()
 			}()
 		}
 
 		wg.Wait()
-		p.Wait()
+		tg.Wait()
 	})
 }
 
-func TestPool_RealWorldScenario(t *testing.T) {
+func TestTaskGroup_RealWorldScenario(t *testing.T) {
 	t.Run("processes batch of HTTP-like requests", func(t *testing.T) {
-		p := NewWorkerPool(5)
+		tg, err := NewTaskGroup(5)
+		require.NoError(t, err)
 		ctx := context.Background()
 
 		requestCount := 50
@@ -607,10 +623,10 @@ func TestPool_RealWorldScenario(t *testing.T) {
 		var maxConcurrent atomic.Int32
 
 		for i := 0; i < requestCount; i++ {
-			_, err := p.Submit(ctx, task.Definition{
+			_, err := tg.Submit(ctx, task.Definition{
 				TaskFn: func(r *task.Run) error {
 					// Track concurrency
-					current := int32(p.ActiveWorkers())
+					current := int32(tg.ActiveWorkers())
 					for {
 						old := maxConcurrent.Load()
 						if current <= old || maxConcurrent.CompareAndSwap(old, current) {
@@ -627,40 +643,46 @@ func TestPool_RealWorldScenario(t *testing.T) {
 			require.NoError(t, err)
 		}
 
-		p.Wait()
+		tg.Wait()
 
 		assert.Equal(t, int32(requestCount), processedCount.Load())
 		assert.LessOrEqual(t, int(maxConcurrent.Load()), 5)
 
-		stats := p.Stats()
+		stats := tg.Stats()
 		assert.Equal(t, requestCount, stats.Done)
 	})
 }
 
 // Benchmark tests
-func BenchmarkPool_Submit(b *testing.B) {
-	p := NewWorkerPool(100)
+func BenchmarkTaskGroup_Submit(b *testing.B) {
+	tg, err := NewTaskGroup(100)
+	if err != nil {
+		b.Fatal(err)
+	}
 	ctx := context.Background()
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = p.Submit(ctx, task.Definition{
+		_, _ = tg.Submit(ctx, task.Definition{
 			TaskFn: func(r *task.Run) error {
 				return nil
 			},
 		})
 	}
 
-	p.Wait()
+	tg.Wait()
 }
 
-func BenchmarkPool_Stats(b *testing.B) {
-	p := NewWorkerPool(10)
+func BenchmarkTaskGroup_Stats(b *testing.B) {
+	tg, err := NewTaskGroup(10)
+	if err != nil {
+		b.Fatal(err)
+	}
 	ctx := context.Background()
 
 	// Submit some tasks
 	for i := 0; i < 100; i++ {
-		_, _ = p.Submit(ctx, task.Definition{
+		_, _ = tg.Submit(ctx, task.Definition{
 			TaskFn: func(r *task.Run) error {
 				time.Sleep(time.Millisecond)
 				return nil
@@ -670,20 +692,23 @@ func BenchmarkPool_Stats(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = p.Stats()
+		_ = tg.Stats()
 	}
 
-	p.Wait()
+	tg.Wait()
 }
 
-func BenchmarkPool_ConcurrentSubmit(b *testing.B) {
-	p := NewWorkerPool(50)
+func BenchmarkTaskGroup_ConcurrentSubmit(b *testing.B) {
+	tg, err := NewTaskGroup(50)
+	if err != nil {
+		b.Fatal(err)
+	}
 	ctx := context.Background()
 
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			_, _ = p.Submit(ctx, task.Definition{
+			_, _ = tg.Submit(ctx, task.Definition{
 				TaskFn: func(r *task.Run) error {
 					return nil
 				},
@@ -691,5 +716,5 @@ func BenchmarkPool_ConcurrentSubmit(b *testing.B) {
 		}
 	})
 
-	p.Wait()
+	tg.Wait()
 }

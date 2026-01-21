@@ -11,7 +11,7 @@ Simple Go library for managing asynchronous tasks with context-aware execution, 
 ### Task Package (`pkg/task`)
 
 - **Context-Aware Execution**: First-class support for `context.Context` with cancellation and timeout handling
-- **Automatic Retries**: Configurable retry logic with exponential backoff
+- **Automatic Retries**: Configurable retry logic with attempt tracking
 - **State Hooks**: Event-driven callbacks for task lifecycle events (created, started, done, failed, canceled)
 - **Thread-Safe**: Built with `sync/atomic` and proper synchronization primitives
 - **Graceful Error Handling**: Structured error types with panic recovery
@@ -19,7 +19,7 @@ Simple Go library for managing asynchronous tasks with context-aware execution, 
 
 ### Workflow Package (`pkg/workflow`)
 
-- **Worker Pool**: Manage concurrent task execution with configurable worker limits
+- **TaskGroup**: Manage concurrent task execution with configurable worker limits
 - **Semaphore-Based Concurrency Control**: Lock-free, channel-based semaphore with multiple acquisition modes
 - **ErrorGroup Integration**: Coordinated error handling using `golang.org/x/sync/errgroup`
 - **Batch Operations**: Submit multiple tasks efficiently
@@ -79,7 +79,7 @@ func main() {
 }
 ```
 
-### Worker Pool
+### TaskGroup
 
 ```go
 package main
@@ -94,16 +94,19 @@ import (
 )
 
 func main() {
-    // Create a worker pool with 10 concurrent workers
-    pool := workflow.NewWorkerPool(10)
-    defer pool.Wait() // Ensure all tasks complete
+    // Create a task group with 10 concurrent workers
+    tg, err := workflow.NewTaskGroup(10)
+    if err != nil {
+        panic(err)
+    }
+    defer tg.Wait() // Ensure all tasks complete
 
     ctx := context.Background()
 
     // Submit tasks
     for i := 0; i < 100; i++ {
         id := i
-        _, err := pool.Submit(ctx, task.Definition{
+        _, err := tg.Submit(ctx, task.Definition{
             ID: fmt.Sprintf("task-%d", id),
             TaskFn: func(r *task.Run) error {
                 fmt.Printf("Processing task %s\n", r.ID())
@@ -117,10 +120,10 @@ func main() {
     }
 
     // Wait for all tasks to complete
-    pool.Wait()
+    tg.Wait()
 
     // Check statistics
-    stats := pool.Stats()
+    stats := tg.Stats()
     fmt.Printf("Completed: %d, Failed: %d\n", stats.Done, stats.Failed)
 }
 ```
@@ -139,7 +142,10 @@ import (
 )
 
 func main() {
-    pool := workflow.NewWorkerPool(5)
+    tg, err := workflow.NewTaskGroup(5)
+    if err != nil {
+        panic(err)
+    }
 
     tasks := []task.Definition{
         {ID: "task-1", TaskFn: func(r *task.Run) error { return nil }},
@@ -150,7 +156,7 @@ func main() {
     ctx := context.Background()
 
     // First error will cancel all remaining tasks
-    if err := pool.SubmitWithErrGroup(ctx, tasks); err != nil {
+    if err := tg.SubmitWithErrGroup(ctx, tasks); err != nil {
         fmt.Printf("Error encountered: %v\n", err)
     }
 }
@@ -267,26 +273,44 @@ type Definition struct {
 ### Task Methods
 
 - `Go(ctx context.Context) error` - Start the task
+- `GoRetry(ctx context.Context) error` - Start with automatic retries (requires `MaxRetries > 0`)
 - `Await()` - Block until task completes
 - `Cancel()` - Cancel the task
 - `State() uint32` - Get current state
 - `Err() error` - Get task error
+- `ID() string` - Get task identifier
 - `IsCreated()`, `IsPending()`, `IsStarted()`, `IsDone()`, `IsFailed()`, `IsCanceled()` - State checks
+- `IsEnd() bool` - Returns true if task is in DONE, FAILED, or CANCELED state
+- `IsInProgress() bool` - Returns true if task is in STARTED or PENDING state
 
-### Worker Pool Methods
+### TaskGroup Methods
 
+- `NewTaskGroup(maxWorkers int) (*TaskGroup, error)` - Create a new task group
 - `Submit(ctx, def) (*Task, error)` - Submit a single task
 - `SubmitBatch(ctx, defs) ([]*Task, error)` - Submit multiple tasks
 - `SubmitWithErrGroup(ctx, defs) error` - Submit with coordinated error handling
 - `Wait()` - Wait for all tasks to complete
 - `WaitWithContext(ctx) error` - Context-aware wait
 - `Stop()` - Stop accepting new tasks
-- `StopWithContext(ctx) error` - Stop and wait with context
+- `StopWithContext(ctx) error` - Stop and cancel in-progress tasks with context
 - `Stats() PoolStats` - Get pool statistics
+- `Tasks() []*Task` - Get copy of all submitted tasks
+- `IsStopped() bool` - Check if pool is stopped
 - `MaxWorkers()`, `ActiveWorkers()`, `AvailableWorkers()` - Query worker status
+
+### State Hook Options
+
+- `WhenCreated(fn func(id string, when time.Time))` - Called when task is created
+- `WhenPending(fn func(id string, when time.Time, attempt int))` - Called when task becomes pending (includes retry attempt number)
+- `WhenStarted(fn func(id string, when time.Time))` - Called when task starts executing
+- `WhenDone(fn func(id string, when time.Time))` - Called when task completes successfully
+- `WhenFailed(fn func(id string, when time.Time, err error))` - Called when task fails
+- `WhenCanceled(fn func(id string, when time.Time))` - Called when task is canceled
+- `FromTaskFn(fn func(id string, when time.Time))` - Called from within task via `Run.Callback()`
 
 ### Semaphore Methods
 
+- `NewSemaphore(limit int) *Semaphore` - Create a new semaphore
 - `Acquire()` - Blocking acquire
 - `TryAcquire() bool` - Non-blocking acquire
 - `AcquireWithContext(ctx) error` - Context-aware acquire
