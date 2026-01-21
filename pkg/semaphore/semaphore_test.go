@@ -1,4 +1,4 @@
-package workflow
+package semaphore
 
 import (
 	"context"

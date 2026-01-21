@@ -17,14 +17,17 @@ Simple Go library for managing asynchronous tasks with context-aware execution, 
 - **Graceful Error Handling**: Structured error types with panic recovery
 - **Comprehensive State Management**: Track tasks through their entire lifecycle
 
-### Workflow Package (`pkg/workflow`)
+### TaskGroup Package (`pkg/taskgroup`)
 
 - **TaskGroup**: Manage concurrent task execution with configurable worker limits
-- **Semaphore-Based Concurrency Control**: Lock-free, channel-based semaphore with multiple acquisition modes
 - **ErrorGroup Integration**: Coordinated error handling using `golang.org/x/sync/errgroup`
 - **Batch Operations**: Submit multiple tasks efficiently
 - **Pool Statistics**: Real-time monitoring of task states and worker utilization
 - **Graceful Shutdown**: Context-aware stopping with proper cleanup
+
+### Semaphore Package (`pkg/semaphore`)
+
+- **Semaphore**: Lock-free, channel-based semaphore with multiple acquisition modes for custom concurrency control
 
 ## Installation
 
@@ -90,12 +93,12 @@ import (
     "time"
 
     "github.com/barnowlsnest/go-asynctasklib/pkg/task"
-    "github.com/barnowlsnest/go-asynctasklib/pkg/workflow"
+    "github.com/barnowlsnest/go-asynctasklib/pkg/taskgroup"
 )
 
 func main() {
     // Create a task group with 10 concurrent workers
-    tg, err := workflow.NewTaskGroup(10)
+    tg, err := taskgroup.New(10)
     if err != nil {
         panic(err)
     }
@@ -138,11 +141,11 @@ import (
     "fmt"
 
     "github.com/barnowlsnest/go-asynctasklib/pkg/task"
-    "github.com/barnowlsnest/go-asynctasklib/pkg/workflow"
+    "github.com/barnowlsnest/go-asynctasklib/pkg/taskgroup"
 )
 
 func main() {
-    tg, err := workflow.NewTaskGroup(5)
+    tg, err := taskgroup.New(5)
     if err != nil {
         panic(err)
     }
@@ -211,12 +214,12 @@ import (
     "sync"
     "time"
 
-    "github.com/barnowlsnest/go-asynctasklib/pkg/workflow"
+    "github.com/barnowlsnest/go-asynctasklib/pkg/semaphore"
 )
 
 func main() {
     // Create a semaphore with 3 slots
-    sem := workflow.NewSemaphore(3)
+    sem := semaphore.NewSemaphore(3)
 
     var wg sync.WaitGroup
     for i := 0; i < 10; i++ {
@@ -240,7 +243,7 @@ func main() {
 ### Context-Aware Semaphore Acquisition
 
 ```go
-sem := workflow.NewSemaphore(5)
+sem := semaphore.NewSemaphore(5)
 
 ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 defer cancel()
@@ -283,9 +286,9 @@ type Definition struct {
 - `IsEnd() bool` - Returns true if task is in DONE, FAILED, or CANCELED state
 - `IsInProgress() bool` - Returns true if task is in STARTED or PENDING state
 
-### TaskGroup Methods
+### TaskGroup Methods (`pkg/taskgroup`)
 
-- `NewTaskGroup(maxWorkers int) (*TaskGroup, error)` - Create a new task group
+- `taskgroup.New(maxWorkers int) (*TaskGroup, error)` - Create a new task group
 - `Submit(ctx, def) (*Task, error)` - Submit a single task
 - `SubmitBatch(ctx, defs) ([]*Task, error)` - Submit multiple tasks
 - `SubmitWithErrGroup(ctx, defs) error` - Submit with coordinated error handling
@@ -295,7 +298,7 @@ type Definition struct {
 - `StopWithContext(ctx) error` - Stop and cancel in-progress tasks with context
 - `Stats() PoolStats` - Get pool statistics
 - `Tasks() []*Task` - Get copy of all submitted tasks
-- `IsStopped() bool` - Check if pool is stopped
+- `IsStopped() bool` - Check if task group is stopped
 - `MaxWorkers()`, `ActiveWorkers()`, `AvailableWorkers()` - Query worker status
 
 ### State Hook Options
@@ -308,9 +311,9 @@ type Definition struct {
 - `WhenCanceled(fn func(id string, when time.Time))` - Called when task is canceled
 - `FromTaskFn(fn func(id string, when time.Time))` - Called from within task via `Run.Callback()`
 
-### Semaphore Methods
+### Semaphore Methods (`pkg/semaphore`)
 
-- `NewSemaphore(limit int) *Semaphore` - Create a new semaphore
+- `semaphore.NewSemaphore(limit int) *Semaphore` - Create a new semaphore
 - `Acquire()` - Blocking acquire
 - `TryAcquire() bool` - Non-blocking acquire
 - `AcquireWithContext(ctx) error` - Context-aware acquire

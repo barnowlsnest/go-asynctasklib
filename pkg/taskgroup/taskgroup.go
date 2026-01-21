@@ -1,4 +1,4 @@
-package workflow
+package taskgroup
 
 import (
 	"context"
@@ -7,24 +7,26 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
+	"github.com/barnowlsnest/go-asynctasklib/pkg/semaphore"
+
 	"github.com/barnowlsnest/go-asynctasklib/pkg/task"
 )
 
 type TaskGroup struct {
-	sem       *Semaphore
+	sem       *semaphore.Semaphore
 	mu        sync.Mutex
 	tasks     []*task.Task
 	stopped   atomic.Bool
 	releaseWg sync.WaitGroup
 }
 
-func NewTaskGroup(maxWorkers int) (*TaskGroup, error) {
+func New(maxWorkers int) (*TaskGroup, error) {
 	if maxWorkers <= 0 {
-		return nil, ErrMaxWorkers
+		return nil, ErrTaskGroupMaxWorkers
 	}
 
 	tg := TaskGroup{
-		sem:   NewSemaphore(maxWorkers),
+		sem:   semaphore.NewSemaphore(maxWorkers),
 		tasks: make([]*task.Task, 0),
 	}
 
@@ -33,7 +35,7 @@ func NewTaskGroup(maxWorkers int) (*TaskGroup, error) {
 
 func (tg *TaskGroup) Submit(ctx context.Context, def task.Definition) (*task.Task, error) {
 	if tg.stopped.Load() {
-		return nil, ErrPoolStopped
+		return nil, ErrTaskGroupStopped
 	}
 
 	t := task.New(def)
