@@ -1,4 +1,4 @@
-package workflow
+package taskgroup
 
 import (
 	"context"
@@ -16,7 +16,7 @@ import (
 
 func TestNewTaskGroup(t *testing.T) {
 	t.Run("creates pool with specified max workers", func(t *testing.T) {
-		tg, err := NewTaskGroup(5)
+		tg, err := New(5)
 		require.NoError(t, err)
 		require.NotNil(t, tg)
 		assert.Equal(t, 5, tg.MaxWorkers())
@@ -26,23 +26,23 @@ func TestNewTaskGroup(t *testing.T) {
 	})
 
 	t.Run("returns error when maxWorkers is zero", func(t *testing.T) {
-		tg, err := NewTaskGroup(0)
+		tg, err := New(0)
 		assert.Error(t, err)
-		assert.Equal(t, ErrMaxWorkers, err)
+		assert.Equal(t, ErrTaskGroupMaxWorkers, err)
 		assert.Nil(t, tg)
 	})
 
 	t.Run("returns error when maxWorkers is negative", func(t *testing.T) {
-		tg, err := NewTaskGroup(-5)
+		tg, err := New(-5)
 		assert.Error(t, err)
-		assert.Equal(t, ErrMaxWorkers, err)
+		assert.Equal(t, ErrTaskGroupMaxWorkers, err)
 		assert.Nil(t, tg)
 	})
 }
 
 func TestTaskGroup_Submit(t *testing.T) {
 	t.Run("submits and executes task successfully", func(t *testing.T) {
-		tg, err := NewTaskGroup(2)
+		tg, err := New(2)
 		require.NoError(t, err)
 		ctx := context.Background()
 		executed := false
@@ -65,7 +65,7 @@ func TestTaskGroup_Submit(t *testing.T) {
 	})
 
 	t.Run("respects max workers limit", func(t *testing.T) {
-		tg, err := NewTaskGroup(2)
+		tg, err := New(2)
 		require.NoError(t, err)
 		ctx := context.Background()
 
@@ -121,7 +121,7 @@ func TestTaskGroup_Submit(t *testing.T) {
 	})
 
 	t.Run("returns error when pool is stopped", func(t *testing.T) {
-		tg, err := NewTaskGroup(2)
+		tg, err := New(2)
 		require.NoError(t, err)
 		ctx := context.Background()
 		tg.Stop()
@@ -133,12 +133,12 @@ func TestTaskGroup_Submit(t *testing.T) {
 		})
 
 		assert.Error(t, err)
-		assert.Equal(t, ErrPoolStopped, err)
+		assert.Equal(t, ErrTaskGroupStopped, err)
 		assert.Nil(t, tk)
 	})
 
 	t.Run("handles task errors", func(t *testing.T) {
-		tg, err := NewTaskGroup(2)
+		tg, err := New(2)
 		require.NoError(t, err)
 		ctx := context.Background()
 		expectedErr := errors.New("task error")
@@ -159,7 +159,7 @@ func TestTaskGroup_Submit(t *testing.T) {
 
 func TestTaskGroup_SubmitWithErrGroup(t *testing.T) {
 	t.Run("executes all tasks successfully", func(t *testing.T) {
-		tg, err := NewTaskGroup(3)
+		tg, err := New(3)
 		require.NoError(t, err)
 		ctx := context.Background()
 
@@ -181,7 +181,7 @@ func TestTaskGroup_SubmitWithErrGroup(t *testing.T) {
 	})
 
 	t.Run("returns first error and cancels remaining tasks", func(t *testing.T) {
-		tg, err := NewTaskGroup(3)
+		tg, err := New(3)
 		require.NoError(t, err)
 		ctx := context.Background()
 
@@ -216,7 +216,7 @@ func TestTaskGroup_SubmitWithErrGroup(t *testing.T) {
 	})
 
 	t.Run("respects context cancellation", func(t *testing.T) {
-		tg, err := NewTaskGroup(2)
+		tg, err := New(2)
 		require.NoError(t, err)
 		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 		defer cancel()
@@ -238,7 +238,7 @@ func TestTaskGroup_SubmitWithErrGroup(t *testing.T) {
 
 func TestTaskGroup_SubmitBatch(t *testing.T) {
 	t.Run("submits multiple tasks and returns all", func(t *testing.T) {
-		tg, err := NewTaskGroup(5)
+		tg, err := New(5)
 		require.NoError(t, err)
 		ctx := context.Background()
 
@@ -263,7 +263,7 @@ func TestTaskGroup_SubmitBatch(t *testing.T) {
 	})
 
 	t.Run("returns error if pool is stopped", func(t *testing.T) {
-		tg, err := NewTaskGroup(2)
+		tg, err := New(2)
 		require.NoError(t, err)
 		ctx := context.Background()
 		tg.Stop()
@@ -280,7 +280,7 @@ func TestTaskGroup_SubmitBatch(t *testing.T) {
 
 func TestTaskGroup_Wait(t *testing.T) {
 	t.Run("waits for all tasks to complete", func(t *testing.T) {
-		tg, err := NewTaskGroup(3)
+		tg, err := New(3)
 		require.NoError(t, err)
 		ctx := context.Background()
 
@@ -304,7 +304,7 @@ func TestTaskGroup_Wait(t *testing.T) {
 
 func TestTaskGroup_WaitWithContext(t *testing.T) {
 	t.Run("waits successfully when tasks complete", func(t *testing.T) {
-		tg, err := NewTaskGroup(2)
+		tg, err := New(2)
 		require.NoError(t, err)
 		ctx := context.Background()
 
@@ -326,7 +326,7 @@ func TestTaskGroup_WaitWithContext(t *testing.T) {
 	})
 
 	t.Run("returns error when context times out", func(t *testing.T) {
-		tg, err := NewTaskGroup(1)
+		tg, err := New(1)
 		require.NoError(t, err)
 		ctx := context.Background()
 
@@ -350,7 +350,7 @@ func TestTaskGroup_WaitWithContext(t *testing.T) {
 
 func TestTaskGroup_Stop(t *testing.T) {
 	t.Run("stops pool and prevents new submissions", func(t *testing.T) {
-		tg, err := NewTaskGroup(2)
+		tg, err := New(2)
 		require.NoError(t, err)
 		ctx := context.Background()
 
@@ -373,13 +373,13 @@ func TestTaskGroup_Stop(t *testing.T) {
 			},
 		})
 		assert.Error(t, err)
-		assert.Equal(t, ErrPoolStopped, err)
+		assert.Equal(t, ErrTaskGroupStopped, err)
 	})
 }
 
 func TestTaskGroup_StopWithContext(t *testing.T) {
 	t.Run("stops pool and cancels running tasks", func(t *testing.T) {
-		tg, err := NewTaskGroup(2)
+		tg, err := New(2)
 		require.NoError(t, err)
 		ctx := context.Background()
 
@@ -411,7 +411,7 @@ func TestTaskGroup_StopWithContext(t *testing.T) {
 	})
 
 	t.Run("cancels running tasks when stopped", func(t *testing.T) {
-		tg, err := NewTaskGroup(2)
+		tg, err := New(2)
 		require.NoError(t, err)
 		ctx := context.Background()
 
@@ -447,7 +447,7 @@ func TestTaskGroup_StopWithContext(t *testing.T) {
 
 func TestTaskGroup_Tasks(t *testing.T) {
 	t.Run("returns copy of all submitted tasks", func(t *testing.T) {
-		tg, err := NewTaskGroup(2)
+		tg, err := New(2)
 		require.NoError(t, err)
 		ctx := context.Background()
 
@@ -470,7 +470,7 @@ func TestTaskGroup_Tasks(t *testing.T) {
 
 func TestTaskGroup_Stats(t *testing.T) {
 	t.Run("returns accurate statistics", func(t *testing.T) {
-		tg, err := NewTaskGroup(2)
+		tg, err := New(2)
 		require.NoError(t, err)
 		ctx := context.Background()
 
@@ -508,7 +508,7 @@ func TestTaskGroup_Stats(t *testing.T) {
 	})
 
 	t.Run("tracks failed and canceled tasks", func(t *testing.T) {
-		tg, err := NewTaskGroup(3)
+		tg, err := New(3)
 		require.NoError(t, err)
 		ctx := context.Background()
 
@@ -549,7 +549,7 @@ func TestTaskGroup_Stats(t *testing.T) {
 
 func TestTaskGroup_ConcurrentAccess(t *testing.T) {
 	t.Run("handles concurrent submissions safely", func(t *testing.T) {
-		tg, err := NewTaskGroup(10)
+		tg, err := New(10)
 		require.NoError(t, err)
 		ctx := context.Background()
 
@@ -579,7 +579,7 @@ func TestTaskGroup_ConcurrentAccess(t *testing.T) {
 	})
 
 	t.Run("concurrent queries are safe", func(t *testing.T) {
-		tg, err := NewTaskGroup(5)
+		tg, err := New(5)
 		require.NoError(t, err)
 		ctx := context.Background()
 
@@ -614,7 +614,7 @@ func TestTaskGroup_ConcurrentAccess(t *testing.T) {
 
 func TestTaskGroup_RealWorldScenario(t *testing.T) {
 	t.Run("processes batch of HTTP-like requests", func(t *testing.T) {
-		tg, err := NewTaskGroup(5)
+		tg, err := New(5)
 		require.NoError(t, err)
 		ctx := context.Background()
 
@@ -655,7 +655,7 @@ func TestTaskGroup_RealWorldScenario(t *testing.T) {
 
 // Benchmark tests
 func BenchmarkTaskGroup_Submit(b *testing.B) {
-	tg, err := NewTaskGroup(100)
+	tg, err := New(100)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -674,7 +674,7 @@ func BenchmarkTaskGroup_Submit(b *testing.B) {
 }
 
 func BenchmarkTaskGroup_Stats(b *testing.B) {
-	tg, err := NewTaskGroup(10)
+	tg, err := New(10)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -699,7 +699,7 @@ func BenchmarkTaskGroup_Stats(b *testing.B) {
 }
 
 func BenchmarkTaskGroup_ConcurrentSubmit(b *testing.B) {
-	tg, err := NewTaskGroup(50)
+	tg, err := New(50)
 	if err != nil {
 		b.Fatal(err)
 	}
