@@ -4,5 +4,5 @@ import "errors"
 
 var (
 	ErrTaskGroupStopped    = errors.New("task group is stopped")
-	ErrTaskGroupMaxWorkers = errors.New("max workgroup workers should be greater 0")
+	ErrTaskGroupMaxWorkers = errors.New("max workers must be greater than 0")
 )
