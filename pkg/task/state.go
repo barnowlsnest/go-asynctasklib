@@ -15,37 +15,41 @@ const (
 
 type (
 	StateHooks struct {
-		onCreated  func(string, time.Time)
-		onStarted  func(string, time.Time)
-		onDone     func(string, time.Time)
-		onTaskFn   func(string, time.Time)
-		onFailed   func(string, time.Time, error)
-		onPending  func(string, time.Time, int)
-		onCanceled func(string, time.Time)
+		onCreated  func(uint64, time.Time)
+		onStarted  func(uint64, time.Time)
+		onDone     func(uint64, time.Time)
+		onTaskFn   func(uint64, time.Time)
+		onFailed   func(uint64, time.Time, error)
+		onPending  func(uint64, time.Time, int)
+		onCanceled func(uint64, time.Time)
 	}
 
 	StateHookOpt func(sh *StateHooks) *StateHooks
 )
 
-func NewStateHooks(opts ...StateHookOpt) *StateHooks {
-	hooks := &StateHooks{
-		onCreated:  func(_ string, _ time.Time) {},
-		onStarted:  func(_ string, _ time.Time) {},
-		onDone:     func(_ string, _ time.Time) {},
-		onTaskFn:   func(_ string, _ time.Time) {},
-		onFailed:   func(_ string, _ time.Time, _ error) {},
-		onPending:  func(_ string, _ time.Time, _ int) {},
-		onCanceled: func(_ string, _ time.Time) {},
+func newNoopHooks() *StateHooks {
+	return &StateHooks{
+		onCreated:  func(_ uint64, _ time.Time) {},
+		onStarted:  func(_ uint64, _ time.Time) {},
+		onDone:     func(_ uint64, _ time.Time) {},
+		onTaskFn:   func(_ uint64, _ time.Time) {},
+		onFailed:   func(_ uint64, _ time.Time, _ error) {},
+		onPending:  func(_ uint64, _ time.Time, _ int) {},
+		onCanceled: func(_ uint64, _ time.Time) {},
 	}
+}
+
+func NewStateHooks(opts ...StateHookOpt) *StateHooks {
+	hooks := newNoopHooks()
 	for _, h := range opts {
 		hooks = h(hooks)
 	}
 	return hooks
 }
 
-func WhenCreated(fn func(string, time.Time)) StateHookOpt {
+func WhenCreated(fn func(uint64, time.Time)) StateHookOpt {
 	return func(sh *StateHooks) *StateHooks {
-		sh.onCreated = func(id string, when time.Time) {
+		sh.onCreated = func(id uint64, when time.Time) {
 			defer catchPanic()
 			fn(id, when)
 		}
@@ -53,9 +57,9 @@ func WhenCreated(fn func(string, time.Time)) StateHookOpt {
 	}
 }
 
-func WhenStarted(fn func(string, time.Time)) StateHookOpt {
+func WhenStarted(fn func(uint64, time.Time)) StateHookOpt {
 	return func(sh *StateHooks) *StateHooks {
-		sh.onStarted = func(id string, when time.Time) {
+		sh.onStarted = func(id uint64, when time.Time) {
 			defer catchPanic()
 			fn(id, when)
 		}
@@ -63,9 +67,9 @@ func WhenStarted(fn func(string, time.Time)) StateHookOpt {
 	}
 }
 
-func WhenDone(fn func(string, time.Time)) StateHookOpt {
+func WhenDone(fn func(uint64, time.Time)) StateHookOpt {
 	return func(sh *StateHooks) *StateHooks {
-		sh.onDone = func(id string, when time.Time) {
+		sh.onDone = func(id uint64, when time.Time) {
 			defer catchPanic()
 			fn(id, when)
 		}
@@ -73,9 +77,9 @@ func WhenDone(fn func(string, time.Time)) StateHookOpt {
 	}
 }
 
-func FromTaskFn(fn func(string, time.Time)) StateHookOpt {
+func FromTaskFn(fn func(uint64, time.Time)) StateHookOpt {
 	return func(sh *StateHooks) *StateHooks {
-		sh.onTaskFn = func(id string, when time.Time) {
+		sh.onTaskFn = func(id uint64, when time.Time) {
 			defer catchPanic()
 			fn(id, when)
 		}
@@ -83,9 +87,9 @@ func FromTaskFn(fn func(string, time.Time)) StateHookOpt {
 	}
 }
 
-func WhenFailed(fn func(string, time.Time, error)) StateHookOpt {
+func WhenFailed(fn func(uint64, time.Time, error)) StateHookOpt {
 	return func(sh *StateHooks) *StateHooks {
-		sh.onFailed = func(id string, when time.Time, err error) {
+		sh.onFailed = func(id uint64, when time.Time, err error) {
 			defer catchPanic()
 			fn(id, when, err)
 		}
@@ -93,9 +97,9 @@ func WhenFailed(fn func(string, time.Time, error)) StateHookOpt {
 	}
 }
 
-func WhenPending(fn func(string, time.Time, int)) StateHookOpt {
+func WhenPending(fn func(uint64, time.Time, int)) StateHookOpt {
 	return func(sh *StateHooks) *StateHooks {
-		sh.onPending = func(id string, when time.Time, attempt int) {
+		sh.onPending = func(id uint64, when time.Time, attempt int) {
 			defer catchPanic()
 			fn(id, when, attempt)
 		}
@@ -103,9 +107,9 @@ func WhenPending(fn func(string, time.Time, int)) StateHookOpt {
 	}
 }
 
-func WhenCanceled(fn func(string, time.Time)) StateHookOpt {
+func WhenCanceled(fn func(uint64, time.Time)) StateHookOpt {
 	return func(sh *StateHooks) *StateHooks {
-		sh.onCanceled = func(id string, when time.Time) {
+		sh.onCanceled = func(id uint64, when time.Time) {
 			defer catchPanic()
 			fn(id, when)
 		}

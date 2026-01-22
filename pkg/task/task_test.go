@@ -15,10 +15,10 @@ import (
 func TestNew(t *testing.T) {
 	t.Run("creates task with default values", func(t *testing.T) {
 		task := New(Definition{
-			ID: "test-task",
+			ID: 1,
 		})
 
-		assert.Equal(t, "test-task", task.ID())
+		assert.Equal(t, uint64(1), task.ID())
 		assert.True(t, task.IsCreated())
 		assert.Equal(t, defaultTimeout, task.timeout)
 	})
@@ -27,7 +27,8 @@ func TestNew(t *testing.T) {
 		taskFn := func(r *Run) error { return nil }
 		hooks := NewStateHooks()
 		task := New(Definition{
-			ID:          "custom-task",
+			ID:          2,
+			Name:        "custom-task",
 			TaskFn:      taskFn,
 			Hooks:       hooks,
 			Delay:       100 * time.Millisecond,
@@ -35,7 +36,8 @@ func TestNew(t *testing.T) {
 			MaxRetries:  3,
 		})
 
-		assert.Equal(t, "custom-task", task.ID())
+		assert.Equal(t, uint64(2), task.ID())
+		assert.Equal(t, "custom-task", task.Name())
 		assert.Equal(t, 100*time.Millisecond, task.delay)
 		assert.Equal(t, 5*time.Second, task.timeout)
 		assert.Equal(t, 3, task.maxRetries)
@@ -46,7 +48,7 @@ func TestTask_Go(t *testing.T) {
 	t.Run("executes successful task", func(t *testing.T) {
 		executed := false
 		task := New(Definition{
-			ID: "success-task",
+			ID: 100,
 			TaskFn: func(r *Run) error {
 				executed = true
 				return nil
@@ -66,7 +68,7 @@ func TestTask_Go(t *testing.T) {
 	t.Run("fails task with error", func(t *testing.T) {
 		expectedErr := errors.New("task error")
 		task := New(Definition{
-			ID: "error-task",
+			ID: 101,
 			TaskFn: func(r *Run) error {
 				return expectedErr
 			},
@@ -84,7 +86,7 @@ func TestTask_Go(t *testing.T) {
 
 	t.Run("returns error for nil context", func(t *testing.T) {
 		task := New(Definition{
-			ID:     "nil-ctx-task",
+			ID:     102,
 			TaskFn: func(r *Run) error { return nil },
 		})
 
@@ -95,7 +97,7 @@ func TestTask_Go(t *testing.T) {
 
 	t.Run("returns error for task already in progress", func(t *testing.T) {
 		task := New(Definition{
-			ID: "in-progress-task",
+			ID: 103,
 			TaskFn: func(r *Run) error {
 				time.Sleep(100 * time.Millisecond)
 				return nil
@@ -115,7 +117,7 @@ func TestTask_Go(t *testing.T) {
 
 	t.Run("handles context cancellation", func(t *testing.T) {
 		task := New(Definition{
-			ID:    "cancel-task",
+			ID:    104,
 			Delay: 50 * time.Millisecond,
 			TaskFn: func(r *Run) error {
 				time.Sleep(200 * time.Millisecond)
@@ -137,7 +139,7 @@ func TestTask_Go(t *testing.T) {
 	t.Run("respects delay", func(t *testing.T) {
 		start := time.Now()
 		task := New(Definition{
-			ID:     "delay-task",
+			ID:     105,
 			Delay:  100 * time.Millisecond,
 			TaskFn: func(r *Run) error { return nil },
 		})
@@ -154,7 +156,7 @@ func TestTask_Go(t *testing.T) {
 
 	t.Run("handles timeout", func(t *testing.T) {
 		task := New(Definition{
-			ID:          "timeout-task",
+			ID:          106,
 			MaxDuration: 50 * time.Millisecond,
 			TaskFn: func(r *Run) error {
 				time.Sleep(200 * time.Millisecond)
@@ -174,7 +176,7 @@ func TestTask_Go(t *testing.T) {
 
 	t.Run("handles panic in task function", func(t *testing.T) {
 		task := New(Definition{
-			ID: "panic-task",
+			ID: 107,
 			TaskFn: func(r *Run) error {
 				panic("test panic")
 			},
@@ -192,16 +194,19 @@ func TestTask_Go(t *testing.T) {
 
 	t.Run("provides Run context helpers", func(t *testing.T) {
 		var (
-			gotID       string
+			gotID       uint64
+			gotName     string
 			gotContext  context.Context
 			gotCancel   context.CancelFunc
 			gotCallback func()
 		)
 
 		task := New(Definition{
-			ID: "run-helpers-task",
+			ID:   108,
+			Name: "run-helpers-task",
 			TaskFn: func(r *Run) error {
 				gotID = r.ID()
+				gotName = r.Name()
 				gotContext = r.Context()
 				gotCancel = r.Cancel
 				gotCallback = r.Callback
@@ -214,7 +219,8 @@ func TestTask_Go(t *testing.T) {
 		require.NoError(t, err)
 		task.Await()
 
-		assert.Equal(t, "run-helpers-task", gotID)
+		assert.Equal(t, uint64(108), gotID)
+		assert.Equal(t, "run-helpers-task", gotName)
 		assert.NotNil(t, gotContext)
 		assert.NotNil(t, gotCancel)
 		assert.NotNil(t, gotCallback)
@@ -225,7 +231,7 @@ func TestTask_GoRetry(t *testing.T) {
 	t.Run("retries failed task", func(t *testing.T) {
 		attempts := 0
 		task := New(Definition{
-			ID:         "retry-task",
+			ID:         200,
 			MaxRetries: 3,
 			TaskFn: func(r *Run) error {
 				attempts++
@@ -247,7 +253,7 @@ func TestTask_GoRetry(t *testing.T) {
 	t.Run("exceeds max retries", func(t *testing.T) {
 		attempts := 0
 		task := New(Definition{
-			ID:         "max-retry-task",
+			ID:         201,
 			MaxRetries: 2,
 			TaskFn: func(r *Run) error {
 				attempts++
@@ -263,7 +269,7 @@ func TestTask_GoRetry(t *testing.T) {
 
 	t.Run("returns error when max retries not set", func(t *testing.T) {
 		task := New(Definition{
-			ID:     "no-retry-task",
+			ID:     202,
 			TaskFn: func(r *Run) error { return nil },
 		})
 
@@ -275,7 +281,7 @@ func TestTask_GoRetry(t *testing.T) {
 	t.Run("tracks attempts correctly", func(t *testing.T) {
 		attempts := 0
 		task := New(Definition{
-			ID:         "attempts-task",
+			ID:         203,
 			MaxRetries: 4,
 			TaskFn: func(r *Run) error {
 				attempts++
@@ -297,7 +303,7 @@ func TestTask_GoRetry(t *testing.T) {
 func TestTask_Cancel(t *testing.T) {
 	t.Run("cancels running task", func(t *testing.T) {
 		task := New(Definition{
-			ID: "cancel-running-task",
+			ID: 300,
 			TaskFn: func(r *Run) error {
 				select {
 				case <-r.Context().Done():
@@ -345,7 +351,7 @@ func TestTask_StateCheckers(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			task := New(Definition{ID: "test"})
+			task := New(Definition{ID: 1})
 			task.state.Store(tt.state)
 
 			result := tt.checker(task)
@@ -365,22 +371,22 @@ func TestTask_Hooks(t *testing.T) {
 		)
 
 		hooks := NewStateHooks(
-			WhenCreated(func(id string, when time.Time) {
+			WhenCreated(func(id uint64, when time.Time) {
 				mu.Lock()
 				defer mu.Unlock()
 				createdCalled = true
 			}),
-			WhenPending(func(id string, when time.Time, attempt int) {
+			WhenPending(func(id uint64, when time.Time, attempt int) {
 				mu.Lock()
 				defer mu.Unlock()
 				pendingCalled = true
 			}),
-			WhenStarted(func(id string, when time.Time) {
+			WhenStarted(func(id uint64, when time.Time) {
 				mu.Lock()
 				defer mu.Unlock()
 				startedCalled = true
 			}),
-			WhenDone(func(id string, when time.Time) {
+			WhenDone(func(id uint64, when time.Time) {
 				mu.Lock()
 				defer mu.Unlock()
 				doneCalled = true
@@ -388,7 +394,7 @@ func TestTask_Hooks(t *testing.T) {
 		)
 
 		task := New(Definition{
-			ID:     "hook-task",
+			ID:     400,
 			Hooks:  hooks,
 			TaskFn: func(r *Run) error { return nil },
 		})
@@ -415,7 +421,7 @@ func TestTask_Hooks(t *testing.T) {
 		)
 
 		hooks := NewStateHooks(
-			WhenFailed(func(id string, when time.Time, err error) {
+			WhenFailed(func(id uint64, when time.Time, err error) {
 				mu.Lock()
 				defer mu.Unlock()
 				failedCalled = true
@@ -423,7 +429,7 @@ func TestTask_Hooks(t *testing.T) {
 		)
 
 		task := New(Definition{
-			ID:     "failed-hook-task",
+			ID:     401,
 			Hooks:  hooks,
 			TaskFn: func(r *Run) error { return errors.New("error") },
 		})
@@ -443,7 +449,7 @@ func TestTask_Hooks(t *testing.T) {
 		var mu sync.Mutex
 
 		hooks := NewStateHooks(
-			FromTaskFn(func(id string, when time.Time) {
+			FromTaskFn(func(id uint64, when time.Time) {
 				mu.Lock()
 				defer mu.Unlock()
 				callbackCalled = true
@@ -451,7 +457,7 @@ func TestTask_Hooks(t *testing.T) {
 		)
 
 		task := New(Definition{
-			ID:    "callback-task",
+			ID:    402,
 			Hooks: hooks,
 			TaskFn: func(r *Run) error {
 				r.Callback()
@@ -474,7 +480,7 @@ func TestTask_Hooks(t *testing.T) {
 func TestTask_ConcurrentAccess(t *testing.T) {
 	t.Run("concurrent state reads", func(t *testing.T) {
 		task := New(Definition{
-			ID: "concurrent-read-task",
+			ID: 500,
 			TaskFn: func(r *Run) error {
 				time.Sleep(100 * time.Millisecond)
 				return nil
@@ -508,7 +514,7 @@ func TestTask_ConcurrentAccess(t *testing.T) {
 
 	t.Run("concurrent error reads", func(t *testing.T) {
 		task := New(Definition{
-			ID: "concurrent-err-task",
+			ID: 501,
 			TaskFn: func(r *Run) error {
 				time.Sleep(50 * time.Millisecond)
 				return errors.New("test error")
@@ -534,7 +540,7 @@ func TestTask_ConcurrentAccess(t *testing.T) {
 
 	t.Run("multiple goroutines await", func(t *testing.T) {
 		task := New(Definition{
-			ID: "multi-await-task",
+			ID: 502,
 			TaskFn: func(r *Run) error {
 				time.Sleep(100 * time.Millisecond)
 				return nil
@@ -559,7 +565,7 @@ func TestTask_ConcurrentAccess(t *testing.T) {
 
 	t.Run("concurrent cancel calls", func(t *testing.T) {
 		task := New(Definition{
-			ID: "concurrent-cancel-task",
+			ID: 503,
 			TaskFn: func(r *Run) error {
 				time.Sleep(100 * time.Millisecond)
 				return nil
@@ -587,7 +593,7 @@ func TestTask_ConcurrentAccess(t *testing.T) {
 		var counter atomic.Int32
 
 		task := New(Definition{
-			ID: "stress-task",
+			ID: 504,
 			TaskFn: func(r *Run) error {
 				counter.Add(1)
 				time.Sleep(10 * time.Millisecond)
@@ -621,7 +627,7 @@ func TestTask_ConcurrentAccess(t *testing.T) {
 	t.Run("concurrent attempts reads during retry", func(t *testing.T) {
 		attemptCount := 0
 		task := New(Definition{
-			ID:         "concurrent-attempts-task",
+			ID:         505,
 			MaxRetries: 5,
 			TaskFn: func(r *Run) error {
 				attemptCount++
@@ -660,7 +666,7 @@ func BenchmarkTask_Go(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		task := New(Definition{
-			ID:     "bench-task",
+			ID:     1,
 			TaskFn: func(r *Run) error { return nil },
 		})
 		_ = task.Go(ctx)
@@ -669,7 +675,7 @@ func BenchmarkTask_Go(b *testing.B) {
 }
 
 func BenchmarkTask_StateChecks(b *testing.B) {
-	task := New(Definition{ID: "bench-state-task"})
+	task := New(Definition{ID: 1})
 	task.state.Store(STARTED)
 
 	b.ResetTimer()
@@ -687,7 +693,7 @@ func BenchmarkTask_StateChecks(b *testing.B) {
 
 func BenchmarkTask_ConcurrentStateReads(b *testing.B) {
 	task := New(Definition{
-		ID: "bench-concurrent-task",
+		ID: 1,
 		TaskFn: func(r *Run) error {
 			time.Sleep(10 * time.Millisecond)
 			return nil
@@ -715,7 +721,7 @@ func BenchmarkTask_GoRetry(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		attempts := 0
 		task := New(Definition{
-			ID:         "bench-retry-task",
+			ID:         1,
 			MaxRetries: 3,
 			TaskFn: func(r *Run) error {
 				attempts++
@@ -732,8 +738,8 @@ func BenchmarkTask_GoRetry(b *testing.B) {
 
 func BenchmarkTask_WithHooks(b *testing.B) {
 	hooks := NewStateHooks(
-		WhenStarted(func(id string, when time.Time) {}),
-		WhenDone(func(id string, when time.Time) {}),
+		WhenStarted(func(id uint64, when time.Time) {}),
+		WhenDone(func(id uint64, when time.Time) {}),
 	)
 
 	ctx := context.Background()
@@ -741,7 +747,7 @@ func BenchmarkTask_WithHooks(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		task := New(Definition{
-			ID:     "bench-hook-task",
+			ID:     1,
 			Hooks:  hooks,
 			TaskFn: func(r *Run) error { return nil },
 		})
@@ -755,7 +761,8 @@ func BenchmarkTask_New(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = New(Definition{
-			ID:          "bench-new-task",
+			ID:          1,
+			Name:        "bench-new-task",
 			TaskFn:      func(r *Run) error { return nil },
 			Delay:       100 * time.Millisecond,
 			MaxDuration: 5 * time.Second,
@@ -765,7 +772,7 @@ func BenchmarkTask_New(b *testing.B) {
 }
 
 func BenchmarkTask_AtomicOperations(b *testing.B) {
-	task := New(Definition{ID: "bench-atomic-task"})
+	task := New(Definition{ID: 1})
 
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {

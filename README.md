@@ -55,9 +55,10 @@ import (
 func main() {
     // Create a task with automatic retries
     t := task.New(task.Definition{
-        ID: "fetch-user-data",
+        ID:   1,
+        Name: "fetch-user-data",
         TaskFn: func(r *task.Run) error {
-            fmt.Printf("Executing task %s\n", r.ID())
+            fmt.Printf("Executing task %d (%s)\n", r.ID(), r.Name())
             // Your business logic here
             return nil
         },
@@ -108,11 +109,12 @@ func main() {
 
     // Submit tasks
     for i := 0; i < 100; i++ {
-        id := i
+        id := uint64(i)
         _, err := tg.Submit(ctx, task.Definition{
-            ID: fmt.Sprintf("task-%d", id),
+            ID:   id,
+            Name: fmt.Sprintf("task-%d", id),
             TaskFn: func(r *task.Run) error {
-                fmt.Printf("Processing task %s\n", r.ID())
+                fmt.Printf("Processing task %d (%s)\n", r.ID(), r.Name())
                 time.Sleep(100 * time.Millisecond)
                 return nil
             },
@@ -151,9 +153,9 @@ func main() {
     }
 
     tasks := []task.Definition{
-        {ID: "task-1", TaskFn: func(r *task.Run) error { return nil }},
-        {ID: "task-2", TaskFn: func(r *task.Run) error { return nil }},
-        {ID: "task-3", TaskFn: func(r *task.Run) error { return fmt.Errorf("simulated error") }},
+        {ID: 1, Name: "task-1", TaskFn: func(r *task.Run) error { return nil }},
+        {ID: 2, Name: "task-2", TaskFn: func(r *task.Run) error { return nil }},
+        {ID: 3, Name: "task-3", TaskFn: func(r *task.Run) error { return fmt.Errorf("simulated error") }},
     }
 
     ctx := context.Background()
@@ -180,19 +182,20 @@ import (
 
 func main() {
     hooks := task.NewStateHooks(
-        task.WhenStarted(func(id string, when time.Time) {
-            fmt.Printf("[%s] Task %s started\n", when.Format(time.RFC3339), id)
+        task.WhenStarted(func(id uint64, when time.Time) {
+            fmt.Printf("[%s] Task %d started\n", when.Format(time.RFC3339), id)
         }),
-        task.WhenDone(func(id string, when time.Time) {
-            fmt.Printf("[%s] Task %s completed\n", when.Format(time.RFC3339), id)
+        task.WhenDone(func(id uint64, when time.Time) {
+            fmt.Printf("[%s] Task %d completed\n", when.Format(time.RFC3339), id)
         }),
-        task.WhenFailed(func(id string, when time.Time, err error) {
-            fmt.Printf("[%s] Task %s failed: %v\n", when.Format(time.RFC3339), id, err)
+        task.WhenFailed(func(id uint64, when time.Time, err error) {
+            fmt.Printf("[%s] Task %d failed: %v\n", when.Format(time.RFC3339), id, err)
         }),
     )
 
     t := task.New(task.Definition{
-        ID:     "monitored-task",
+        ID:     1,
+        Name:   "monitored-task",
         Hooks:  hooks,
         TaskFn: func(r *task.Run) error { return nil },
     })
@@ -264,7 +267,8 @@ defer sem.Release()
 
 ```go
 type Definition struct {
-    ID          string              // Unique task identifier
+    ID          uint64              // Unique task identifier
+    Name        string              // Human-readable task name
     TaskFn      func(*Run) error    // Task function to execute
     Hooks       *StateHooks         // State change callbacks
     Delay       time.Duration       // Delay before starting
@@ -281,7 +285,8 @@ type Definition struct {
 - `Cancel()` - Cancel the task
 - `State() uint32` - Get current state
 - `Err() error` - Get task error
-- `ID() string` - Get task identifier
+- `ID() uint64` - Get task identifier
+- `Name() string` - Get task name
 - `IsCreated()`, `IsPending()`, `IsStarted()`, `IsDone()`, `IsFailed()`, `IsCanceled()` - State checks
 - `IsEnd() bool` - Returns true if task is in DONE, FAILED, or CANCELED state
 - `IsInProgress() bool` - Returns true if task is in STARTED or PENDING state
@@ -303,13 +308,13 @@ type Definition struct {
 
 ### State Hook Options
 
-- `WhenCreated(fn func(id string, when time.Time))` - Called when task is created
-- `WhenPending(fn func(id string, when time.Time, attempt int))` - Called when task becomes pending (includes retry attempt number)
-- `WhenStarted(fn func(id string, when time.Time))` - Called when task starts executing
-- `WhenDone(fn func(id string, when time.Time))` - Called when task completes successfully
-- `WhenFailed(fn func(id string, when time.Time, err error))` - Called when task fails
-- `WhenCanceled(fn func(id string, when time.Time))` - Called when task is canceled
-- `FromTaskFn(fn func(id string, when time.Time))` - Called from within task via `Run.Callback()`
+- `WhenCreated(fn func(id uint64, when time.Time))` - Called when task is created
+- `WhenPending(fn func(id uint64, when time.Time, attempt int))` - Called when task becomes pending (includes retry attempt number)
+- `WhenStarted(fn func(id uint64, when time.Time))` - Called when task starts executing
+- `WhenDone(fn func(id uint64, when time.Time))` - Called when task completes successfully
+- `WhenFailed(fn func(id uint64, when time.Time, err error))` - Called when task fails
+- `WhenCanceled(fn func(id uint64, when time.Time))` - Called when task is canceled
+- `FromTaskFn(fn func(id uint64, when time.Time))` - Called from within task via `Run.Callback()`
 
 ### Semaphore Methods (`pkg/semaphore`)
 

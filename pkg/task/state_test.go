@@ -17,25 +17,25 @@ func TestNewStateHooks(t *testing.T) {
 
 		// These should not panic
 		assert.NotPanics(t, func() {
-			hooks.onCreated("test", time.Now())
-			hooks.onStarted("test", time.Now())
-			hooks.onDone("test", time.Now())
-			hooks.onTaskFn("test", time.Now())
-			hooks.onFailed("test", time.Now(), nil)
-			hooks.onPending("test", time.Now(), 1)
-			hooks.onCanceled("test", time.Now())
+			hooks.onCreated(1, time.Now())
+			hooks.onStarted(1, time.Now())
+			hooks.onDone(1, time.Now())
+			hooks.onTaskFn(1, time.Now())
+			hooks.onFailed(1, time.Now(), nil)
+			hooks.onPending(1, time.Now(), 1)
+			hooks.onCanceled(1, time.Now())
 		})
 	})
 
 	t.Run("applies options correctly", func(t *testing.T) {
 		var called bool
 		hooks := NewStateHooks(
-			WhenCreated(func(id string, when time.Time) {
+			WhenCreated(func(id uint64, when time.Time) {
 				called = true
 			}),
 		)
 
-		hooks.onCreated("test", time.Now())
+		hooks.onCreated(1, time.Now())
 
 		assert.True(t, called)
 	})
@@ -48,20 +48,20 @@ func TestNewStateHooks(t *testing.T) {
 		)
 
 		hooks := NewStateHooks(
-			WhenCreated(func(id string, when time.Time) {
+			WhenCreated(func(id uint64, when time.Time) {
 				createdCalled = true
 			}),
-			WhenStarted(func(id string, when time.Time) {
+			WhenStarted(func(id uint64, when time.Time) {
 				startedCalled = true
 			}),
-			WhenDone(func(id string, when time.Time) {
+			WhenDone(func(id uint64, when time.Time) {
 				doneCalled = true
 			}),
 		)
 
-		hooks.onCreated("test", time.Now())
-		hooks.onStarted("test", time.Now())
-		hooks.onDone("test", time.Now())
+		hooks.onCreated(1, time.Now())
+		hooks.onStarted(1, time.Now())
+		hooks.onDone(1, time.Now())
 
 		assert.True(t, createdCalled)
 		assert.True(t, startedCalled)
@@ -72,33 +72,33 @@ func TestNewStateHooks(t *testing.T) {
 func TestWhenCreated(t *testing.T) {
 	t.Run("sets created hook", func(t *testing.T) {
 		var (
-			gotID   string
+			gotID   uint64
 			gotWhen time.Time
 		)
 
 		hooks := NewStateHooks(
-			WhenCreated(func(id string, when time.Time) {
+			WhenCreated(func(id uint64, when time.Time) {
 				gotID = id
 				gotWhen = when
 			}),
 		)
 
 		testTime := time.Now().UTC()
-		hooks.onCreated("test-id", testTime)
+		hooks.onCreated(123, testTime)
 
-		assert.Equal(t, "test-id", gotID)
+		assert.Equal(t, uint64(123), gotID)
 		assert.Equal(t, testTime, gotWhen)
 	})
 
 	t.Run("catches panic in hook", func(t *testing.T) {
 		hooks := NewStateHooks(
-			WhenCreated(func(id string, when time.Time) {
+			WhenCreated(func(id uint64, when time.Time) {
 				panic("test panic in created hook")
 			}),
 		)
 
 		assert.NotPanics(t, func() {
-			hooks.onCreated("test", time.Now())
+			hooks.onCreated(1, time.Now())
 		})
 	})
 }
@@ -106,33 +106,33 @@ func TestWhenCreated(t *testing.T) {
 func TestWhenStarted(t *testing.T) {
 	t.Run("sets started hook", func(t *testing.T) {
 		var (
-			gotID   string
+			gotID   uint64
 			gotWhen time.Time
 		)
 
 		hooks := NewStateHooks(
-			WhenStarted(func(id string, when time.Time) {
+			WhenStarted(func(id uint64, when time.Time) {
 				gotID = id
 				gotWhen = when
 			}),
 		)
 
 		testTime := time.Now().UTC()
-		hooks.onStarted("started-id", testTime)
+		hooks.onStarted(456, testTime)
 
-		assert.Equal(t, "started-id", gotID)
+		assert.Equal(t, uint64(456), gotID)
 		assert.Equal(t, testTime, gotWhen)
 	})
 
 	t.Run("catches panic in hook", func(t *testing.T) {
 		hooks := NewStateHooks(
-			WhenStarted(func(id string, when time.Time) {
+			WhenStarted(func(id uint64, when time.Time) {
 				panic("test panic in started hook")
 			}),
 		)
 
 		assert.NotPanics(t, func() {
-			hooks.onStarted("test", time.Now())
+			hooks.onStarted(1, time.Now())
 		})
 	})
 }
@@ -140,33 +140,33 @@ func TestWhenStarted(t *testing.T) {
 func TestWhenDone(t *testing.T) {
 	t.Run("sets done hook", func(t *testing.T) {
 		var (
-			gotID   string
+			gotID   uint64
 			gotWhen time.Time
 		)
 
 		hooks := NewStateHooks(
-			WhenDone(func(id string, when time.Time) {
+			WhenDone(func(id uint64, when time.Time) {
 				gotID = id
 				gotWhen = when
 			}),
 		)
 
 		testTime := time.Now().UTC()
-		hooks.onDone("done-id", testTime)
+		hooks.onDone(789, testTime)
 
-		assert.Equal(t, "done-id", gotID)
+		assert.Equal(t, uint64(789), gotID)
 		assert.Equal(t, testTime, gotWhen)
 	})
 
 	t.Run("catches panic in hook", func(t *testing.T) {
 		hooks := NewStateHooks(
-			WhenDone(func(id string, when time.Time) {
+			WhenDone(func(id uint64, when time.Time) {
 				panic("test panic in done hook")
 			}),
 		)
 
 		assert.NotPanics(t, func() {
-			hooks.onDone("test", time.Now())
+			hooks.onDone(1, time.Now())
 		})
 	})
 }
@@ -174,33 +174,33 @@ func TestWhenDone(t *testing.T) {
 func TestFromTaskFn(t *testing.T) {
 	t.Run("sets task function hook", func(t *testing.T) {
 		var (
-			gotID   string
+			gotID   uint64
 			gotWhen time.Time
 		)
 
 		hooks := NewStateHooks(
-			FromTaskFn(func(id string, when time.Time) {
+			FromTaskFn(func(id uint64, when time.Time) {
 				gotID = id
 				gotWhen = when
 			}),
 		)
 
 		testTime := time.Now().UTC()
-		hooks.onTaskFn("taskfn-id", testTime)
+		hooks.onTaskFn(101, testTime)
 
-		assert.Equal(t, "taskfn-id", gotID)
+		assert.Equal(t, uint64(101), gotID)
 		assert.Equal(t, testTime, gotWhen)
 	})
 
 	t.Run("catches panic in hook", func(t *testing.T) {
 		hooks := NewStateHooks(
-			FromTaskFn(func(id string, when time.Time) {
+			FromTaskFn(func(id uint64, when time.Time) {
 				panic("test panic in taskfn hook")
 			}),
 		)
 
 		assert.NotPanics(t, func() {
-			hooks.onTaskFn("test", time.Now())
+			hooks.onTaskFn(1, time.Now())
 		})
 	})
 }
@@ -208,13 +208,13 @@ func TestFromTaskFn(t *testing.T) {
 func TestWhenFailed(t *testing.T) {
 	t.Run("sets failed hook", func(t *testing.T) {
 		var (
-			gotID   string
+			gotID   uint64
 			gotWhen time.Time
 			gotErr  error
 		)
 
 		hooks := NewStateHooks(
-			WhenFailed(func(id string, when time.Time, err error) {
+			WhenFailed(func(id uint64, when time.Time, err error) {
 				gotID = id
 				gotWhen = when
 				gotErr = err
@@ -223,22 +223,22 @@ func TestWhenFailed(t *testing.T) {
 
 		testTime := time.Now().UTC()
 		testErr := ErrTaskTimeout
-		hooks.onFailed("failed-id", testTime, testErr)
+		hooks.onFailed(202, testTime, testErr)
 
-		assert.Equal(t, "failed-id", gotID)
+		assert.Equal(t, uint64(202), gotID)
 		assert.Equal(t, testTime, gotWhen)
 		assert.Equal(t, testErr, gotErr)
 	})
 
 	t.Run("catches panic in hook", func(t *testing.T) {
 		hooks := NewStateHooks(
-			WhenFailed(func(id string, when time.Time, err error) {
+			WhenFailed(func(id uint64, when time.Time, err error) {
 				panic("test panic in failed hook")
 			}),
 		)
 
 		assert.NotPanics(t, func() {
-			hooks.onFailed("test", time.Now(), nil)
+			hooks.onFailed(1, time.Now(), nil)
 		})
 	})
 }
@@ -246,13 +246,13 @@ func TestWhenFailed(t *testing.T) {
 func TestWhenPending(t *testing.T) {
 	t.Run("sets pending hook", func(t *testing.T) {
 		var (
-			gotID      string
+			gotID      uint64
 			gotWhen    time.Time
 			gotAttempt int
 		)
 
 		hooks := NewStateHooks(
-			WhenPending(func(id string, when time.Time, attempt int) {
+			WhenPending(func(id uint64, when time.Time, attempt int) {
 				gotID = id
 				gotWhen = when
 				gotAttempt = attempt
@@ -260,22 +260,22 @@ func TestWhenPending(t *testing.T) {
 		)
 
 		testTime := time.Now().UTC()
-		hooks.onPending("pending-id", testTime, 3)
+		hooks.onPending(303, testTime, 3)
 
-		assert.Equal(t, "pending-id", gotID)
+		assert.Equal(t, uint64(303), gotID)
 		assert.Equal(t, testTime, gotWhen)
 		assert.Equal(t, 3, gotAttempt)
 	})
 
 	t.Run("catches panic in hook", func(t *testing.T) {
 		hooks := NewStateHooks(
-			WhenPending(func(id string, when time.Time, attempt int) {
+			WhenPending(func(id uint64, when time.Time, attempt int) {
 				panic("test panic in pending hook")
 			}),
 		)
 
 		assert.NotPanics(t, func() {
-			hooks.onPending("test", time.Now(), 1)
+			hooks.onPending(1, time.Now(), 1)
 		})
 	})
 }
@@ -283,33 +283,33 @@ func TestWhenPending(t *testing.T) {
 func TestWhenCanceled(t *testing.T) {
 	t.Run("sets canceled hook", func(t *testing.T) {
 		var (
-			gotID   string
+			gotID   uint64
 			gotWhen time.Time
 		)
 
 		hooks := NewStateHooks(
-			WhenCanceled(func(id string, when time.Time) {
+			WhenCanceled(func(id uint64, when time.Time) {
 				gotID = id
 				gotWhen = when
 			}),
 		)
 
 		testTime := time.Now().UTC()
-		hooks.onCanceled("canceled-id", testTime)
+		hooks.onCanceled(404, testTime)
 
-		assert.Equal(t, "canceled-id", gotID)
+		assert.Equal(t, uint64(404), gotID)
 		assert.Equal(t, testTime, gotWhen)
 	})
 
 	t.Run("catches panic in hook", func(t *testing.T) {
 		hooks := NewStateHooks(
-			WhenCanceled(func(id string, when time.Time) {
+			WhenCanceled(func(id uint64, when time.Time) {
 				panic("test panic in canceled hook")
 			}),
 		)
 
 		assert.NotPanics(t, func() {
-			hooks.onCanceled("test", time.Now())
+			hooks.onCanceled(1, time.Now())
 		})
 	})
 }
@@ -366,7 +366,7 @@ func TestStateHooks_ConcurrentAccess(t *testing.T) {
 		)
 
 		hooks := NewStateHooks(
-			WhenCreated(func(id string, when time.Time) {
+			WhenCreated(func(id uint64, when time.Time) {
 				mu.Lock()
 				defer mu.Unlock()
 				counter++
@@ -378,7 +378,7 @@ func TestStateHooks_ConcurrentAccess(t *testing.T) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				hooks.onCreated("test", time.Now())
+				hooks.onCreated(1, time.Now())
 			}()
 		}
 
@@ -391,7 +391,7 @@ func TestStateHooks_ConcurrentAccess(t *testing.T) {
 
 	t.Run("concurrent panic-inducing hooks don't crash", func(t *testing.T) {
 		hooks := NewStateHooks(
-			WhenCreated(func(id string, when time.Time) {
+			WhenCreated(func(id uint64, when time.Time) {
 				panic("concurrent panic test")
 			}),
 		)
@@ -402,7 +402,7 @@ func TestStateHooks_ConcurrentAccess(t *testing.T) {
 			go func() {
 				defer wg.Done()
 				assert.NotPanics(t, func() {
-					hooks.onCreated("test", time.Now())
+					hooks.onCreated(1, time.Now())
 				})
 			}()
 		}
@@ -423,37 +423,37 @@ func TestStateHooks_ConcurrentAccess(t *testing.T) {
 		)
 
 		hooks := NewStateHooks(
-			WhenCreated(func(id string, when time.Time) {
+			WhenCreated(func(id uint64, when time.Time) {
 				mu.Lock()
 				defer mu.Unlock()
 				createdCount++
 			}),
-			WhenStarted(func(id string, when time.Time) {
+			WhenStarted(func(id uint64, when time.Time) {
 				mu.Lock()
 				defer mu.Unlock()
 				startedCount++
 			}),
-			WhenDone(func(id string, when time.Time) {
+			WhenDone(func(id uint64, when time.Time) {
 				mu.Lock()
 				defer mu.Unlock()
 				doneCount++
 			}),
-			WhenFailed(func(id string, when time.Time, err error) {
+			WhenFailed(func(id uint64, when time.Time, err error) {
 				mu.Lock()
 				defer mu.Unlock()
 				failedCount++
 			}),
-			WhenPending(func(id string, when time.Time, attempt int) {
+			WhenPending(func(id uint64, when time.Time, attempt int) {
 				mu.Lock()
 				defer mu.Unlock()
 				pendingCount++
 			}),
-			WhenCanceled(func(id string, when time.Time) {
+			WhenCanceled(func(id uint64, when time.Time) {
 				mu.Lock()
 				defer mu.Unlock()
 				canceledCount++
 			}),
-			FromTaskFn(func(id string, when time.Time) {
+			FromTaskFn(func(id uint64, when time.Time) {
 				mu.Lock()
 				defer mu.Unlock()
 				taskFnCount++
@@ -467,31 +467,31 @@ func TestStateHooks_ConcurrentAccess(t *testing.T) {
 			wg.Add(7)
 			go func() {
 				defer wg.Done()
-				hooks.onCreated("test", time.Now())
+				hooks.onCreated(1, time.Now())
 			}()
 			go func() {
 				defer wg.Done()
-				hooks.onStarted("test", time.Now())
+				hooks.onStarted(1, time.Now())
 			}()
 			go func() {
 				defer wg.Done()
-				hooks.onDone("test", time.Now())
+				hooks.onDone(1, time.Now())
 			}()
 			go func() {
 				defer wg.Done()
-				hooks.onFailed("test", time.Now(), nil)
+				hooks.onFailed(1, time.Now(), nil)
 			}()
 			go func() {
 				defer wg.Done()
-				hooks.onPending("test", time.Now(), 1)
+				hooks.onPending(1, time.Now(), 1)
 			}()
 			go func() {
 				defer wg.Done()
-				hooks.onCanceled("test", time.Now())
+				hooks.onCanceled(1, time.Now())
 			}()
 			go func() {
 				defer wg.Done()
-				hooks.onTaskFn("test", time.Now())
+				hooks.onTaskFn(1, time.Now())
 			}()
 		}
 
@@ -515,9 +515,9 @@ func BenchmarkStateHooks_Creation(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = NewStateHooks(
-			WhenCreated(func(id string, when time.Time) {}),
-			WhenStarted(func(id string, when time.Time) {}),
-			WhenDone(func(id string, when time.Time) {}),
+			WhenCreated(func(id uint64, when time.Time) {}),
+			WhenStarted(func(id uint64, when time.Time) {}),
+			WhenDone(func(id uint64, when time.Time) {}),
 		)
 	}
 }
@@ -528,25 +528,25 @@ func BenchmarkStateHooks_CallEmpty(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		hooks.onCreated("test", now)
+		hooks.onCreated(1, now)
 	}
 }
 
 func BenchmarkStateHooks_CallWithFunction(b *testing.B) {
 	hooks := NewStateHooks(
-		WhenCreated(func(id string, when time.Time) {}),
+		WhenCreated(func(id uint64, when time.Time) {}),
 	)
 	now := time.Now()
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		hooks.onCreated("test", now)
+		hooks.onCreated(1, now)
 	}
 }
 
 func BenchmarkStateHooks_PanicRecovery(b *testing.B) {
 	hooks := NewStateHooks(
-		WhenCreated(func(id string, when time.Time) {
+		WhenCreated(func(id uint64, when time.Time) {
 			panic("benchmark panic")
 		}),
 	)
@@ -554,6 +554,6 @@ func BenchmarkStateHooks_PanicRecovery(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		hooks.onCreated("test", now)
+		hooks.onCreated(1, now)
 	}
 }
