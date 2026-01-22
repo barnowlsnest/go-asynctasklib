@@ -13,14 +13,16 @@ const defaultTimeout = time.Second * 30
 
 type (
 	Run struct {
-		ID       func() string
+		ID       func() uint64
+		Name     func() string
 		Context  func() context.Context
 		Cancel   context.CancelFunc
 		Callback func()
 	}
 
 	Definition struct {
-		ID          string
+		ID          uint64
+		Name        string
 		TaskFn      func(*Run) error
 		Hooks       *StateHooks
 		Delay       time.Duration
@@ -29,7 +31,8 @@ type (
 	}
 
 	Task struct {
-		id         string
+		id         uint64
+		name       string
 		fn         func(*Run) error
 		cancel     context.CancelFunc
 		hooks      *StateHooks
@@ -52,6 +55,7 @@ func New(d Definition) *Task {
 
 	t := &Task{
 		id:         d.ID,
+		name:       d.Name,
 		cancel:     func() {},
 		fn:         func(*Run) error { return ErrTaskFnNotSet },
 		timeout:    defaultTimeout,
@@ -117,7 +121,8 @@ func (t *Task) delegateFn(ctx context.Context) <-chan error {
 		default:
 			run := &Run{
 				Cancel:   t.cancel,
-				ID:       func() string { return t.id },
+				ID:       func() uint64 { return t.id },
+				Name:     func() string { return t.name },
 				Context:  func() context.Context { return ctx },
 				Callback: func() { t.hooks.onTaskFn(t.id, time.Now().UTC()) },
 			}
@@ -275,6 +280,10 @@ func (t *Task) Await() {
 	t.wg.Wait()
 }
 
-func (t *Task) ID() string {
+func (t *Task) ID() uint64 {
 	return t.id
+}
+
+func (t *Task) Name() string {
+	return t.name
 }

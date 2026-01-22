@@ -48,7 +48,7 @@ func TestTaskGroup_Submit(t *testing.T) {
 		executed := false
 
 		tk, err := tg.Submit(ctx, task.Definition{
-			ID: "test-task",
+			ID: 1,
 			TaskFn: func(r *task.Run) error {
 				executed = true
 				return nil
@@ -57,7 +57,7 @@ func TestTaskGroup_Submit(t *testing.T) {
 
 		require.NoError(t, err)
 		require.NotNil(t, tk)
-		assert.Equal(t, "test-task", tk.ID())
+		assert.Equal(t, uint64(1), tk.ID())
 
 		tk.Await()
 		assert.True(t, executed)
