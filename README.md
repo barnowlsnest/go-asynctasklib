@@ -16,6 +16,7 @@ Simple Go library for managing asynchronous tasks with context-aware execution, 
 - **Thread-Safe**: Built with `sync/atomic` and proper synchronization primitives
 - **Graceful Error Handling**: Structured error types with panic recovery
 - **Comprehensive State Management**: Track tasks through their entire lifecycle
+- **Builder Pattern**: Fluent API for constructing task definitions with validation
 
 ### TaskGroup Package (`pkg/taskgroup`)
 
@@ -167,6 +168,41 @@ func main() {
 }
 ```
 
+### Using the Builder Pattern
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "time"
+
+    "github.com/barnowlsnest/go-asynctasklib/pkg/task"
+)
+
+func main() {
+    // Build a task definition with validation
+    def, err := task.NewBuilder(
+        task.WithID(1),
+        task.WithName("validated-task"),
+        task.WithTaskFn(func(r *task.Run) error {
+            fmt.Printf("Running task %d\n", r.ID())
+            return nil
+        }),
+        task.WithMaxRetries(3),
+        task.WithTimeout(30*time.Second),
+    ).Build()
+    if err != nil {
+        panic(err) // Handles ErrIDNotSet, ErrTaskFnNotSet, ErrMaxRetriesNotSet
+    }
+
+    t := task.New(*def)
+    t.Go(context.Background())
+    t.Await()
+}
+```
+
 ### State Hooks
 
 ```go
@@ -266,16 +302,40 @@ defer sem.Release()
 ### Task Definition
 
 ```go
+type RunFunc func(*Run) error
+
 type Definition struct {
     ID          uint64              // Unique task identifier
     Name        string              // Human-readable task name
-    TaskFn      func(*Run) error    // Task function to execute
+    TaskFn      RunFunc             // Task function to execute
     Hooks       *StateHooks         // State change callbacks
     Delay       time.Duration       // Delay before starting
     MaxDuration time.Duration       // Execution timeout (default: 30s)
     MaxRetries  int                 // Number of retry attempts (0 = no retries)
 }
 ```
+
+### Builder Pattern
+
+Create task definitions with validation using the fluent builder API:
+
+```go
+def, err := task.NewBuilder(opts...).Build()
+```
+
+**Builder Options:**
+- `WithID(id uint64)` - Set task ID (required)
+- `WithName(name string)` - Set task name (defaults to "task-{ID}" if not set)
+- `WithTaskFn(fn RunFunc)` - Set task function (required)
+- `WithMaxRetries(retries int)` - Set max retries (required, must be > 0)
+- `WithDelay(delay time.Duration)` - Set delay before starting
+- `WithTimeout(duration time.Duration)` - Set execution timeout
+- `WithHooks(hooks *StateHooks)` - Set state change callbacks
+
+**Build Errors:**
+- `ErrIDNotSet` - ID is 0
+- `ErrTaskFnNotSet` - TaskFn is nil
+- `ErrMaxRetriesNotSet` - MaxRetries is <= 0
 
 ### Task Methods
 

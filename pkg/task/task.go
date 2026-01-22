@@ -12,6 +12,8 @@ import (
 const defaultTimeout = time.Second * 30
 
 type (
+	RunFunc func(*Run) error
+
 	Run struct {
 		ID       func() uint64
 		Name     func() string
@@ -23,7 +25,7 @@ type (
 	Definition struct {
 		ID          uint64
 		Name        string
-		TaskFn      func(*Run) error
+		TaskFn      RunFunc
 		Hooks       *StateHooks
 		Delay       time.Duration
 		MaxDuration time.Duration
@@ -33,7 +35,7 @@ type (
 	Task struct {
 		id         uint64
 		name       string
-		fn         func(*Run) error
+		fn         RunFunc
 		cancel     context.CancelFunc
 		hooks      *StateHooks
 		wg         sync.WaitGroup
@@ -47,6 +49,10 @@ type (
 	}
 )
 
+func errRunFunc(*Run) error {
+	return ErrTaskFnNotSet
+}
+
 func New(d Definition) *Task {
 	hooks := NewStateHooks()
 	if d.Hooks != nil {
@@ -57,7 +63,7 @@ func New(d Definition) *Task {
 		id:         d.ID,
 		name:       d.Name,
 		cancel:     func() {},
-		fn:         func(*Run) error { return ErrTaskFnNotSet },
+		fn:         errRunFunc,
 		timeout:    defaultTimeout,
 		delay:      d.Delay,
 		maxRetries: d.MaxRetries,
