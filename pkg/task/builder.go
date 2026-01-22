@@ -19,7 +19,7 @@ func NewBuilder(opts ...OptionFunc) *Builder {
 	var b Builder
 	b.opts = make([]OptionFunc, 0, len(opts))
 	for _, opt := range opts {
-		if opts != nil {
+		if opt != nil {
 			b.opts = append(b.opts, opt)
 		}
 	}
