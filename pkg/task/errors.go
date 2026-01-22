@@ -11,5 +11,6 @@ var (
 	ErrTaskInProgress     = errors.New("task is already in progress")
 	ErrTaskFnNotSet       = errors.New("task function is not set")
 	ErrMaxRetriesNotSet   = errors.New("maximum retries not set or less than zero")
+	ErrIDNotSet           = errors.New("task id should be greater than zero")
 	ErrMaxRetriesExceeded = errors.New("maximum retries exceeded")
 )
