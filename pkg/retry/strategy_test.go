@@ -4,193 +4,217 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/suite"
 )
 
-func TestConstant(t *testing.T) {
-	t.Run("returns base delay for all attempts", func(t *testing.T) {
-		s := Constant(WithBaseDelay(200 * time.Millisecond))
-
-		for attempt := 0; attempt < 5; attempt++ {
-			assert.Equal(t, 200*time.Millisecond, s.Delay(attempt))
-		}
-	})
-
-	t.Run("uses default base delay", func(t *testing.T) {
-		s := Constant()
-		assert.Equal(t, defaultBaseDelay, s.Delay(0))
-	})
-
-	t.Run("caps at max delay", func(t *testing.T) {
-		s := Constant(
-			WithBaseDelay(500*time.Millisecond),
-			WithMaxDelay(200*time.Millisecond),
-		)
-		assert.Equal(t, 200*time.Millisecond, s.Delay(0))
-	})
-
-	t.Run("with jitter returns value in range", func(t *testing.T) {
-		s := Constant(
-			WithBaseDelay(100*time.Millisecond),
-			WithJitter(true),
-		)
-
-		for i := 0; i < 100; i++ {
-			d := s.Delay(0)
-			assert.GreaterOrEqual(t, d, time.Duration(0))
-			assert.LessOrEqual(t, d, 100*time.Millisecond)
-		}
-	})
-
-	t.Run("zero base delay returns zero", func(t *testing.T) {
-		s := Constant(WithBaseDelay(0))
-		assert.Equal(t, time.Duration(0), s.Delay(0))
-	})
+// ConstantSuite tests the Constant retry strategy.
+type ConstantSuite struct {
+	suite.Suite
 }
 
-func TestLinear(t *testing.T) {
-	t.Run("returns linearly increasing delay", func(t *testing.T) {
-		s := Linear(WithBaseDelay(100 * time.Millisecond))
-
-		assert.Equal(t, 100*time.Millisecond, s.Delay(0))
-		assert.Equal(t, 200*time.Millisecond, s.Delay(1))
-		assert.Equal(t, 300*time.Millisecond, s.Delay(2))
-		assert.Equal(t, 400*time.Millisecond, s.Delay(3))
-	})
-
-	t.Run("caps at max delay", func(t *testing.T) {
-		s := Linear(
-			WithBaseDelay(100*time.Millisecond),
-			WithMaxDelay(250*time.Millisecond),
-		)
-
-		assert.Equal(t, 100*time.Millisecond, s.Delay(0))
-		assert.Equal(t, 200*time.Millisecond, s.Delay(1))
-		assert.Equal(t, 250*time.Millisecond, s.Delay(2))
-		assert.Equal(t, 250*time.Millisecond, s.Delay(3))
-	})
-
-	t.Run("with jitter returns value in range", func(t *testing.T) {
-		s := Linear(
-			WithBaseDelay(100*time.Millisecond),
-			WithJitter(true),
-		)
-
-		for i := 0; i < 100; i++ {
-			d := s.Delay(1)
-			assert.GreaterOrEqual(t, d, time.Duration(0))
-			assert.LessOrEqual(t, d, 200*time.Millisecond)
-		}
-	})
-
-	t.Run("zero base delay returns zero", func(t *testing.T) {
-		s := Linear(WithBaseDelay(0))
-		assert.Equal(t, time.Duration(0), s.Delay(5))
-	})
-
-	t.Run("large attempt caps at max delay", func(t *testing.T) {
-		s := Linear(
-			WithBaseDelay(100*time.Millisecond),
-			WithMaxDelay(1*time.Second),
-		)
-		assert.Equal(t, 1*time.Second, s.Delay(100))
-	})
+func TestConstantSuite(t *testing.T) {
+	suite.Run(t, new(ConstantSuite))
 }
 
-func TestExponentialBackoff(t *testing.T) {
-	t.Run("returns exponentially increasing delay", func(t *testing.T) {
-		s := ExponentialBackoff(WithBaseDelay(100 * time.Millisecond))
+func (s *ConstantSuite) TestReturnsBaseDelayForAllAttempts() {
+	strategy := Constant(WithBaseDelay(200 * time.Millisecond))
 
-		assert.Equal(t, 100*time.Millisecond, s.Delay(0))  // 100ms * 2^0 = 100ms
-		assert.Equal(t, 200*time.Millisecond, s.Delay(1))  // 100ms * 2^1 = 200ms
-		assert.Equal(t, 400*time.Millisecond, s.Delay(2))  // 100ms * 2^2 = 400ms
-		assert.Equal(t, 800*time.Millisecond, s.Delay(3))  // 100ms * 2^3 = 800ms
-		assert.Equal(t, 1600*time.Millisecond, s.Delay(4)) // 100ms * 2^4 = 1600ms
-	})
-
-	t.Run("caps at max delay", func(t *testing.T) {
-		s := ExponentialBackoff(
-			WithBaseDelay(100*time.Millisecond),
-			WithMaxDelay(500*time.Millisecond),
-		)
-
-		assert.Equal(t, 100*time.Millisecond, s.Delay(0))
-		assert.Equal(t, 200*time.Millisecond, s.Delay(1))
-		assert.Equal(t, 400*time.Millisecond, s.Delay(2))
-		assert.Equal(t, 500*time.Millisecond, s.Delay(3)) // capped
-		assert.Equal(t, 500*time.Millisecond, s.Delay(4)) // capped
-	})
-
-	t.Run("with jitter returns value in range", func(t *testing.T) {
-		s := ExponentialBackoff(
-			WithBaseDelay(100*time.Millisecond),
-			WithJitter(true),
-		)
-
-		for i := 0; i < 100; i++ {
-			d := s.Delay(2)
-			assert.GreaterOrEqual(t, d, time.Duration(0))
-			assert.LessOrEqual(t, d, 400*time.Millisecond)
-		}
-	})
-
-	t.Run("handles large attempt numbers without overflow", func(t *testing.T) {
-		s := ExponentialBackoff(
-			WithBaseDelay(100*time.Millisecond),
-			WithMaxDelay(1*time.Second),
-		)
-
-		d := s.Delay(100)
-		assert.Equal(t, 1*time.Second, d)
-	})
-
-	t.Run("attempt 63 returns max delay", func(t *testing.T) {
-		s := ExponentialBackoff(
-			WithBaseDelay(100*time.Millisecond),
-			WithMaxDelay(5*time.Second),
-		)
-		assert.Equal(t, 5*time.Second, s.Delay(63))
-	})
-
-	t.Run("zero base delay returns zero", func(t *testing.T) {
-		s := ExponentialBackoff(WithBaseDelay(0))
-		assert.Equal(t, time.Duration(0), s.Delay(0))
-	})
+	for attempt := 0; attempt < 5; attempt++ {
+		s.Equal(200*time.Millisecond, strategy.Delay(attempt))
+	}
 }
 
-func TestCustomOptions(t *testing.T) {
-	t.Run("options override defaults", func(t *testing.T) {
-		s := Constant(
-			WithBaseDelay(500*time.Millisecond),
-			WithMaxDelay(10*time.Second),
-		)
-		assert.Equal(t, 500*time.Millisecond, s.Delay(0))
-	})
-
-	t.Run("nil options are ignored", func(t *testing.T) {
-		s := Constant(nil, WithBaseDelay(200*time.Millisecond))
-		assert.Equal(t, 200*time.Millisecond, s.Delay(0))
-	})
+func (s *ConstantSuite) TestUsesDefaultBaseDelay() {
+	strategy := Constant()
+	s.Equal(defaultBaseDelay, strategy.Delay(0))
 }
 
-func TestApplyJitter(t *testing.T) {
-	t.Run("zero delay returns zero", func(t *testing.T) {
-		assert.Equal(t, time.Duration(0), applyJitter(0))
-	})
-
-	t.Run("negative delay returns zero", func(t *testing.T) {
-		assert.Equal(t, time.Duration(0), applyJitter(-1*time.Second))
-	})
+func (s *ConstantSuite) TestCapsAtMaxDelay() {
+	strategy := Constant(
+		WithBaseDelay(500*time.Millisecond),
+		WithMaxDelay(200*time.Millisecond),
+	)
+	s.Equal(200*time.Millisecond, strategy.Delay(0))
 }
 
-func TestCapDelay(t *testing.T) {
-	t.Run("does not cap below max", func(t *testing.T) {
-		assert.Equal(t, 100*time.Millisecond, capDelay(100*time.Millisecond, 1*time.Second))
-	})
+func (s *ConstantSuite) TestWithJitterReturnsValueInRange() {
+	strategy := Constant(
+		WithBaseDelay(100*time.Millisecond),
+		WithJitter(true),
+	)
 
-	t.Run("caps at max", func(t *testing.T) {
-		assert.Equal(t, 1*time.Second, capDelay(5*time.Second, 1*time.Second))
-	})
+	for i := 0; i < 100; i++ {
+		d := strategy.Delay(0)
+		s.GreaterOrEqual(d, time.Duration(0))
+		s.LessOrEqual(d, 100*time.Millisecond)
+	}
+}
+
+func (s *ConstantSuite) TestZeroBaseDelayReturnsZero() {
+	strategy := Constant(WithBaseDelay(0))
+	s.Equal(time.Duration(0), strategy.Delay(0))
+}
+
+// LinearSuite tests the Linear retry strategy.
+type LinearSuite struct {
+	suite.Suite
+}
+
+func TestLinearSuite(t *testing.T) {
+	suite.Run(t, new(LinearSuite))
+}
+
+func (s *LinearSuite) TestReturnsLinearlyIncreasingDelay() {
+	strategy := Linear(WithBaseDelay(100 * time.Millisecond))
+
+	s.Equal(100*time.Millisecond, strategy.Delay(0))
+	s.Equal(200*time.Millisecond, strategy.Delay(1))
+	s.Equal(300*time.Millisecond, strategy.Delay(2))
+	s.Equal(400*time.Millisecond, strategy.Delay(3))
+}
+
+func (s *LinearSuite) TestCapsAtMaxDelay() {
+	strategy := Linear(
+		WithBaseDelay(100*time.Millisecond),
+		WithMaxDelay(250*time.Millisecond),
+	)
+
+	s.Equal(100*time.Millisecond, strategy.Delay(0))
+	s.Equal(200*time.Millisecond, strategy.Delay(1))
+	s.Equal(250*time.Millisecond, strategy.Delay(2))
+	s.Equal(250*time.Millisecond, strategy.Delay(3))
+}
+
+func (s *LinearSuite) TestWithJitterReturnsValueInRange() {
+	strategy := Linear(
+		WithBaseDelay(100*time.Millisecond),
+		WithJitter(true),
+	)
+
+	for i := 0; i < 100; i++ {
+		d := strategy.Delay(1)
+		s.GreaterOrEqual(d, time.Duration(0))
+		s.LessOrEqual(d, 200*time.Millisecond)
+	}
+}
+
+func (s *LinearSuite) TestZeroBaseDelayReturnsZero() {
+	strategy := Linear(WithBaseDelay(0))
+	s.Equal(time.Duration(0), strategy.Delay(5))
+}
+
+func (s *LinearSuite) TestLargeAttemptCapsAtMaxDelay() {
+	strategy := Linear(
+		WithBaseDelay(100*time.Millisecond),
+		WithMaxDelay(1*time.Second),
+	)
+	s.Equal(1*time.Second, strategy.Delay(100))
+}
+
+// ExponentialBackoffSuite tests the ExponentialBackoff retry strategy.
+type ExponentialBackoffSuite struct {
+	suite.Suite
+}
+
+func TestExponentialBackoffSuite(t *testing.T) {
+	suite.Run(t, new(ExponentialBackoffSuite))
+}
+
+func (s *ExponentialBackoffSuite) TestReturnsExponentiallyIncreasingDelay() {
+	strategy := ExponentialBackoff(WithBaseDelay(100 * time.Millisecond))
+
+	s.Equal(100*time.Millisecond, strategy.Delay(0))  // 100ms * 2^0 = 100ms
+	s.Equal(200*time.Millisecond, strategy.Delay(1))  // 100ms * 2^1 = 200ms
+	s.Equal(400*time.Millisecond, strategy.Delay(2))  // 100ms * 2^2 = 400ms
+	s.Equal(800*time.Millisecond, strategy.Delay(3))  // 100ms * 2^3 = 800ms
+	s.Equal(1600*time.Millisecond, strategy.Delay(4)) // 100ms * 2^4 = 1600ms
+}
+
+func (s *ExponentialBackoffSuite) TestCapsAtMaxDelay() {
+	strategy := ExponentialBackoff(
+		WithBaseDelay(100*time.Millisecond),
+		WithMaxDelay(500*time.Millisecond),
+	)
+
+	s.Equal(100*time.Millisecond, strategy.Delay(0))
+	s.Equal(200*time.Millisecond, strategy.Delay(1))
+	s.Equal(400*time.Millisecond, strategy.Delay(2))
+	s.Equal(500*time.Millisecond, strategy.Delay(3)) // capped
+	s.Equal(500*time.Millisecond, strategy.Delay(4)) // capped
+}
+
+func (s *ExponentialBackoffSuite) TestWithJitterReturnsValueInRange() {
+	strategy := ExponentialBackoff(
+		WithBaseDelay(100*time.Millisecond),
+		WithJitter(true),
+	)
+
+	for i := 0; i < 100; i++ {
+		d := strategy.Delay(2)
+		s.GreaterOrEqual(d, time.Duration(0))
+		s.LessOrEqual(d, 400*time.Millisecond)
+	}
+}
+
+func (s *ExponentialBackoffSuite) TestHandlesLargeAttemptNumbersWithoutOverflow() {
+	strategy := ExponentialBackoff(
+		WithBaseDelay(100*time.Millisecond),
+		WithMaxDelay(1*time.Second),
+	)
+
+	d := strategy.Delay(100)
+	s.Equal(1*time.Second, d)
+}
+
+func (s *ExponentialBackoffSuite) TestAttempt63ReturnsMaxDelay() {
+	strategy := ExponentialBackoff(
+		WithBaseDelay(100*time.Millisecond),
+		WithMaxDelay(5*time.Second),
+	)
+	s.Equal(5*time.Second, strategy.Delay(63))
+}
+
+func (s *ExponentialBackoffSuite) TestZeroBaseDelayReturnsZero() {
+	strategy := ExponentialBackoff(WithBaseDelay(0))
+	s.Equal(time.Duration(0), strategy.Delay(0))
+}
+
+// HelpersSuite tests internal helper functions and shared option behavior.
+type HelpersSuite struct {
+	suite.Suite
+}
+
+func TestHelpersSuite(t *testing.T) {
+	suite.Run(t, new(HelpersSuite))
+}
+
+func (s *HelpersSuite) TestOptionsOverrideDefaults() {
+	strategy := Constant(
+		WithBaseDelay(500*time.Millisecond),
+		WithMaxDelay(10*time.Second),
+	)
+	s.Equal(500*time.Millisecond, strategy.Delay(0))
+}
+
+func (s *HelpersSuite) TestNilOptionsAreIgnored() {
+	strategy := Constant(nil, WithBaseDelay(200*time.Millisecond))
+	s.Equal(200*time.Millisecond, strategy.Delay(0))
+}
+
+func (s *HelpersSuite) TestApplyJitterZeroDelayReturnsZero() {
+	s.Equal(time.Duration(0), applyJitter(0))
+}
+
+func (s *HelpersSuite) TestApplyJitterNegativeDelayReturnsZero() {
+	s.Equal(time.Duration(0), applyJitter(-1*time.Second))
+}
+
+func (s *HelpersSuite) TestCapDelayDoesNotCapBelowMax() {
+	s.Equal(100*time.Millisecond, capDelay(100*time.Millisecond, 1*time.Second))
+}
+
+func (s *HelpersSuite) TestCapDelayCapsAtMax() {
+	s.Equal(1*time.Second, capDelay(5*time.Second, 1*time.Second))
 }
 
 // Benchmark tests

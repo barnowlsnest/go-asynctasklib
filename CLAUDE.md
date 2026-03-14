@@ -197,7 +197,9 @@ Code must pass `golangci-lint` with these key limits:
 - Always use `defer` with mutexes, but be careful not to double-unlock
 - When using WaitGroups, protect `Add()` operations with the same mutex that protects `Wait()`
 - Test with `-race` flag to catch concurrency issues
-- Use testify assertions (`assert`, `require`) for cleaner tests
+- Use testify `suite.Suite` for organizing tests — one suite per logical component, test methods named `Test<Behavior>`
+- Use suite assertions (`s.Equal`, `s.NoError`, etc.) instead of standalone `assert`/`require` within suites
+- Benchmarks remain standalone `Benchmark*` functions (suites don't support benchmarks)
 
 ## Final Reminder
 
