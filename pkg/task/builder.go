@@ -3,6 +3,8 @@ package task
 import (
 	"fmt"
 	"time"
+
+	"github.com/barnowlsnest/go-asynctasklib/pkg/retry"
 )
 
 type (
@@ -65,6 +67,12 @@ func WithTimeout(duration time.Duration) OptionFunc {
 func WithHooks(hooks *StateHooks) OptionFunc {
 	return func(d *Definition) {
 		d.Hooks = hooks
+	}
+}
+
+func WithRetryStrategy(strategy retry.Strategy) OptionFunc {
+	return func(d *Definition) {
+		d.RetryStrategy = strategy
 	}
 }
 

@@ -11,7 +11,7 @@ Simple Go library for managing asynchronous tasks with context-aware execution, 
 ### Task Package (`pkg/task`)
 
 - **Context-Aware Execution**: First-class support for `context.Context` with cancellation and timeout handling
-- **Automatic Retries**: Configurable retry logic with attempt tracking
+- **Automatic Retries**: Configurable retry logic with attempt tracking and pluggable retry strategies
 - **State Hooks**: Event-driven callbacks for task lifecycle events (created, started, done, failed, canceled)
 - **Thread-Safe**: Built with `sync/atomic` and proper synchronization primitives
 - **Graceful Error Handling**: Structured error types with panic recovery
@@ -25,6 +25,14 @@ Simple Go library for managing asynchronous tasks with context-aware execution, 
 - **Batch Operations**: Submit multiple tasks efficiently
 - **Pool Statistics**: Real-time monitoring of task states and worker utilization
 - **Graceful Shutdown**: Context-aware stopping with proper cleanup
+
+### Retry Package (`pkg/retry`)
+
+- **Constant Strategy**: Fixed delay between retries
+- **Linear Strategy**: Linearly increasing delay (`baseDelay * attempt`)
+- **Exponential Backoff**: Exponentially increasing delay (`baseDelay * 2^attempt`) with overflow protection
+- **Jitter**: Optional randomization to prevent thundering herd
+- **Configurable**: Base delay, max delay cap, and jitter via functional options
 
 ### Semaphore Package (`pkg/semaphore`)
 
@@ -203,6 +211,49 @@ func main() {
 }
 ```
 
+### Retry Strategies
+
+```go
+package main
+
+import (
+    "context"
+    "errors"
+    "fmt"
+    "time"
+
+    "github.com/barnowlsnest/go-asynctasklib/pkg/retry"
+    "github.com/barnowlsnest/go-asynctasklib/pkg/task"
+)
+
+func main() {
+    // Exponential backoff: 200ms, 400ms, 800ms, ... capped at 5s
+    t := task.New(task.Definition{
+        ID:         1,
+        Name:       "api-call",
+        MaxRetries: 5,
+        RetryStrategy: retry.ExponentialBackoff(
+            retry.WithBaseDelay(200*time.Millisecond),
+            retry.WithMaxDelay(5*time.Second),
+            retry.WithJitter(true), // Randomize to avoid thundering herd
+        ),
+        TaskFn: func(r *task.Run) error {
+            // Call external API...
+            return errors.New("rate limited")
+        },
+    })
+
+    ctx := context.Background()
+    if err := t.GoRetry(ctx); err != nil {
+        fmt.Printf("All retries exhausted: %v\n", err)
+    }
+
+    // Other strategies:
+    // retry.Constant()  - fixed delay between retries
+    // retry.Linear()    - linearly increasing delay
+}
+```
+
 ### State Hooks
 
 ```go
@@ -305,13 +356,14 @@ defer sem.Release()
 type RunFunc func(*Run) error
 
 type Definition struct {
-    ID          uint64              // Unique task identifier
-    Name        string              // Human-readable task name
-    TaskFn      RunFunc             // Task function to execute
-    Hooks       *StateHooks         // State change callbacks
-    Delay       time.Duration       // Delay before starting
-    MaxDuration time.Duration       // Execution timeout (default: 30s)
-    MaxRetries  int                 // Number of retry attempts (0 = no retries)
+    ID            uint64              // Unique task identifier
+    Name          string              // Human-readable task name
+    TaskFn        RunFunc             // Task function to execute
+    Hooks         *StateHooks         // State change callbacks
+    Delay         time.Duration       // Delay before starting
+    MaxDuration   time.Duration       // Execution timeout (default: 30s)
+    MaxRetries    int                 // Number of retry attempts (0 = no retries)
+    RetryStrategy retry.Strategy      // Retry delay strategy (nil = immediate retry)
 }
 ```
 
@@ -331,6 +383,7 @@ def, err := task.NewBuilder(opts...).Build()
 - `WithDelay(delay time.Duration)` - Set delay before starting
 - `WithTimeout(duration time.Duration)` - Set execution timeout
 - `WithHooks(hooks *StateHooks)` - Set state change callbacks
+- `WithRetryStrategy(strategy retry.Strategy)` - Set retry delay strategy
 
 **Build Errors:**
 - `ErrIDNotSet` - ID is 0
@@ -375,6 +428,18 @@ def, err := task.NewBuilder(opts...).Build()
 - `WhenFailed(fn func(id uint64, when time.Time, err error))` - Called when task fails
 - `WhenCanceled(fn func(id uint64, when time.Time))` - Called when task is canceled
 - `FromTaskFn(fn func(id uint64, when time.Time))` - Called from within task via `Run.Callback()`
+
+### Retry Strategies (`pkg/retry`)
+
+**Strategies:**
+- `retry.Constant(opts ...OptionFunc) Strategy` - Fixed delay on every attempt
+- `retry.Linear(opts ...OptionFunc) Strategy` - Delay increases as `baseDelay * (attempt + 1)`
+- `retry.ExponentialBackoff(opts ...OptionFunc) Strategy` - Delay increases as `baseDelay * 2^attempt`
+
+**Options:**
+- `retry.WithBaseDelay(d time.Duration)` - Base delay between retries (default: 100ms)
+- `retry.WithMaxDelay(d time.Duration)` - Maximum delay cap (default: 30s)
+- `retry.WithJitter(bool)` - Randomize delay in [0, calculatedDelay] (default: false)
 
 ### Semaphore Methods (`pkg/semaphore`)
 

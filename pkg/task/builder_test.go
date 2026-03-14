@@ -6,6 +6,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/barnowlsnest/go-asynctasklib/pkg/retry"
 )
 
 func TestNewBuilder(t *testing.T) {
@@ -87,6 +89,17 @@ func TestWithHooks(t *testing.T) {
 		opt := WithHooks(hooks)
 		opt(&d)
 		assert.Equal(t, hooks, d.Hooks)
+	})
+}
+
+func TestWithRetryStrategy(t *testing.T) {
+	t.Run("sets RetryStrategy on definition", func(t *testing.T) {
+		var d Definition
+		strategy := retry.Constant(retry.WithBaseDelay(100 * time.Millisecond))
+		opt := WithRetryStrategy(strategy)
+		opt(&d)
+		assert.NotNil(t, d.RetryStrategy)
+		assert.Equal(t, 100*time.Millisecond, d.RetryStrategy.Delay(0))
 	})
 }
 

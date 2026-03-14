@@ -7,6 +7,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/barnowlsnest/go-asynctasklib/pkg/retry"
 )
 
 const defaultTimeout = time.Second * 30
@@ -23,29 +25,31 @@ type (
 	}
 
 	Definition struct {
-		ID          uint64
-		Name        string
-		TaskFn      RunFunc
-		Hooks       *StateHooks
-		Delay       time.Duration
-		MaxDuration time.Duration
-		MaxRetries  int
+		ID            uint64
+		Name          string
+		TaskFn        RunFunc
+		Hooks         *StateHooks
+		Delay         time.Duration
+		MaxDuration   time.Duration
+		MaxRetries    int
+		RetryStrategy retry.Strategy
 	}
 
 	Task struct {
-		id         uint64
-		name       string
-		fn         RunFunc
-		cancel     context.CancelFunc
-		hooks      *StateHooks
-		wg         sync.WaitGroup
-		mu         sync.Mutex
-		state      atomic.Uint32
-		attempts   atomic.Uint32
-		timeout    time.Duration
-		delay      time.Duration
-		maxRetries int
-		err        error
+		id            uint64
+		name          string
+		fn            RunFunc
+		cancel        context.CancelFunc
+		hooks         *StateHooks
+		retryStrategy retry.Strategy
+		wg            sync.WaitGroup
+		mu            sync.Mutex
+		state         atomic.Uint32
+		attempts      atomic.Uint32
+		timeout       time.Duration
+		delay         time.Duration
+		maxRetries    int
+		err           error
 	}
 )
 
@@ -60,14 +64,15 @@ func New(d Definition) *Task {
 	}
 
 	t := &Task{
-		id:         d.ID,
-		name:       d.Name,
-		cancel:     func() {},
-		fn:         errRunFunc,
-		timeout:    defaultTimeout,
-		delay:      d.Delay,
-		maxRetries: d.MaxRetries,
-		hooks:      hooks,
+		id:            d.ID,
+		name:          d.Name,
+		cancel:        func() {},
+		fn:            errRunFunc,
+		timeout:       defaultTimeout,
+		delay:         d.Delay,
+		maxRetries:    d.MaxRetries,
+		retryStrategy: d.RetryStrategy,
+		hooks:         hooks,
 	}
 
 	if d.TaskFn != nil {
@@ -226,6 +231,17 @@ attempt:
 
 	if t.IsFailed() {
 		t.attempts.Add(1)
+		if t.retryStrategy != nil {
+			d := t.retryStrategy.Delay(int(t.attempts.Load()) - 1)
+			if d > 0 {
+				select {
+				case <-time.After(d):
+				case <-ctx.Done():
+					t.canceled()
+					return errors.Join(ErrCancelledTask, ctx.Err())
+				}
+			}
+		}
 		goto attempt
 	}
 
