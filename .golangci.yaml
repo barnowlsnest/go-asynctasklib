@@ -55,6 +55,9 @@ linters:
         - opinionated
         - performance
         - style
+      settings:
+        hugeParam:
+          sizeThreshold: 96
     gocyclo:
       min-complexity: 15
     lll:

@@ -10,6 +10,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/barnowlsnest/go-asynctasklib/pkg/retry"
 )
 
 func TestNew(t *testing.T) {
@@ -780,5 +782,79 @@ func BenchmarkTask_AtomicOperations(b *testing.B) {
 			task.state.Load()
 			task.attempts.Load()
 		}
+	})
+}
+
+func TestTask_GoRetryWithStrategy(t *testing.T) {
+	t.Run("retry with constant strategy introduces delay", func(t *testing.T) {
+		attempts := 0
+		task := New(Definition{
+			ID:            600,
+			MaxRetries:    3,
+			RetryStrategy: retry.Constant(retry.WithBaseDelay(50 * time.Millisecond)),
+			TaskFn: func(r *Run) error {
+				attempts++
+				if attempts < 3 {
+					return errors.New("temporary error")
+				}
+				return nil
+			},
+		})
+
+		start := time.Now()
+		ctx := context.Background()
+		err := task.GoRetry(ctx)
+		elapsed := time.Since(start)
+
+		require.NoError(t, err)
+		assert.Equal(t, 3, attempts)
+		assert.True(t, task.IsDone())
+		// 2 retries * 50ms = at least 100ms
+		assert.GreaterOrEqual(t, elapsed, 100*time.Millisecond)
+	})
+
+	t.Run("context cancellation during retry delay", func(t *testing.T) {
+		attempts := 0
+		task := New(Definition{
+			ID:            601,
+			MaxRetries:    5,
+			RetryStrategy: retry.Constant(retry.WithBaseDelay(1 * time.Second)),
+			TaskFn: func(r *Run) error {
+				attempts++
+				return errors.New("always fails")
+			},
+		})
+
+		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		defer cancel()
+
+		err := task.GoRetry(ctx)
+		assert.ErrorIs(t, err, ErrCancelledTask)
+		assert.Equal(t, 1, attempts, "should only attempt once before cancel during delay")
+	})
+
+	t.Run("nil strategy preserves immediate retry", func(t *testing.T) {
+		attempts := 0
+		task := New(Definition{
+			ID:         602,
+			MaxRetries: 3,
+			TaskFn: func(r *Run) error {
+				attempts++
+				if attempts < 3 {
+					return errors.New("temporary error")
+				}
+				return nil
+			},
+		})
+
+		start := time.Now()
+		ctx := context.Background()
+		err := task.GoRetry(ctx)
+		elapsed := time.Since(start)
+
+		require.NoError(t, err)
+		assert.Equal(t, 3, attempts)
+		// Without strategy, retries should be near-instant
+		assert.Less(t, elapsed, 50*time.Millisecond)
 	})
 }
