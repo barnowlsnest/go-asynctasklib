@@ -493,7 +493,7 @@ def, err := task.NewBuilder(opts...).Build()
 - `WaitWithContext(ctx) error` - Context-aware wait
 - `Stop()` - Stop accepting new tasks
 - `StopWithContext(ctx) error` - Stop and cancel in-progress tasks with context
-- `Stats() PoolStats` - Get pool statistics
+- `Stats() Stats` - Get pool statistics
 - `Tasks() []*Task` - Get copy of all submitted tasks
 - `IsStopped() bool` - Check if task group is stopped
 - `MaxWorkers()`, `ActiveWorkers()`, `AvailableWorkers()` - Query worker status

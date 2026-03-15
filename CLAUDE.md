@@ -141,7 +141,7 @@ go test ./... -race -cover        # Run all tests with race detector and coverag
   - `Stop()` / `StopWithContext(ctx) error` - Graceful/forceful shutdown
   - `Tasks() []*Task` - Get copy of all submitted tasks
   - `IsStopped() bool` - Check if TaskGroup is stopped
-  - `Stats() PoolStats` - Get statistics about tasks
+  - `Stats() Stats` - Get statistics about tasks
 
 #### Yielder Package (`pkg/yielder`)
 
