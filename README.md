@@ -329,16 +329,15 @@ import (
 
 func main() {
     // From static values
-    a, b, c := "alpha", "beta", "gamma"
     y, err := yielder.New[string](context.Background(),
-        yielder.WithValues([]*string{&a, &b, &c}),
+        yielder.WithValues([]string{"alpha", "beta", "gamma"}),
     )
     if err != nil {
         panic(err)
     }
 
     for v := range y.Results() {
-        fmt.Println(*v)
+        fmt.Println(v)
     }
 
     if err := y.Err(); err != nil {
@@ -350,10 +349,9 @@ func main() {
 ```go
 // From a generator function with custom timeout and buffer
 y, err := yielder.New[int](ctx,
-    yielder.WithGeneratorFunc(func() ([]*int, error) {
+    yielder.WithGeneratorFunc(func() ([]int, error) {
         // fetch or compute values
-        results := []*int{&v1, &v2, &v3}
-        return results, nil
+        return []int{1, 2, 3}, nil
     }),
     yielder.WithTimeout[int](5*time.Second),
     yielder.WithBuffer[int](10),
@@ -364,7 +362,7 @@ if err != nil {
 
 // Consume results — channel closes when generation completes
 for v := range y.Results() {
-    process(*v)
+    process(v)
 }
 
 // Or wait for completion via Done channel
@@ -526,14 +524,14 @@ def, err := task.NewBuilder(opts...).Build()
 ### Yielder (`pkg/yielder`)
 
 - `yielder.New[T](ctx, opts ...Option[T]) (*Yielder[T], error)` - Create and start a new yielder
-- `Results() <-chan *T` - Channel of generated values (closes on completion)
+- `Results() <-chan T` - Channel of generated values (closes on completion)
 - `Done() <-chan struct{}` - Closed when the yielder finishes (success, error, timeout, or stop)
 - `Stop()` - Stop the yielder (idempotent)
 - `Err() error` - Get accumulated errors
 
 **Options:**
-- `WithGeneratorFunc[T](fn func() ([]*T, error))` - Set the generator function
-- `WithValues[T](values []*T)` - Use a static slice as the generator
+- `WithGeneratorFunc[T](fn func() ([]T, error))` - Set the generator function
+- `WithValues[T](values []T)` - Use a static slice as the generator
 - `WithTimeout[T](d time.Duration)` - Timeout before auto-stop (default: 1s)
 - `WithBuffer[T](size int)` - Result channel buffer size (default: 1)
 

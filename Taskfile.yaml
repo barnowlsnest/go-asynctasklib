@@ -27,7 +27,7 @@ tasks:
 
   go-test:
     cmds:
-      - go test -cover '{{.ALL}}'
+      - go test -race -cover '{{.ALL}}'
 
   go-lint:
     cmds:
