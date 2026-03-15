@@ -31,6 +31,7 @@ type (
 		Hooks         *StateHooks
 		Delay         time.Duration
 		MaxDuration   time.Duration
+		RetryDelay    time.Duration
 		MaxRetries    int
 		RetryStrategy retry.Strategy
 	}
@@ -48,6 +49,7 @@ type (
 		attempts      atomic.Uint32
 		timeout       time.Duration
 		delay         time.Duration
+		retryDelay    time.Duration
 		maxRetries    int
 		err           error
 	}
@@ -70,6 +72,7 @@ func New(d Definition) *Task {
 		fn:            errRunFunc,
 		timeout:       defaultTimeout,
 		delay:         d.Delay,
+		retryDelay:    d.RetryDelay,
 		maxRetries:    d.MaxRetries,
 		retryStrategy: d.RetryStrategy,
 		hooks:         hooks,
@@ -230,18 +233,24 @@ attempt:
 	t.Await()
 
 	if t.IsFailed() {
+		retryAttempt := int(t.attempts.Load())
 		t.attempts.Add(1)
+
+		var d time.Duration
 		if t.retryStrategy != nil {
-			d := t.retryStrategy.Delay(int(t.attempts.Load()) - 1)
-			if d > 0 {
-				select {
-				case <-time.After(d):
-				case <-ctx.Done():
-					t.canceled()
-					return errors.Join(ErrCancelledTask, ctx.Err())
-				}
+			d = t.retryStrategy.Delay(retryAttempt)
+		} else {
+			d = t.retryDelay
+		}
+		if d > 0 {
+			select {
+			case <-time.After(d):
+			case <-ctx.Done():
+				t.canceled()
+				return errors.Join(ErrCancelledTask, ctx.Err())
 			}
 		}
+
 		goto attempt
 	}
 

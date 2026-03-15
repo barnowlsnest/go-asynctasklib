@@ -5,36 +5,29 @@ import (
 	"time"
 )
 
-type exponentialBackoff struct {
+// ExponentialBackoff implements Strategy with exponentially increasing delay between retries.
+type ExponentialBackoff struct {
 	cfg config
 }
 
-func ExponentialBackoff(opts ...OptionFunc) Strategy {
-	return &exponentialBackoff{cfg: applyConfig(opts)}
+// NewExponentialBackoff creates an ExponentialBackoff retry strategy.
+func NewExponentialBackoff(opts ...OptionFunc) *ExponentialBackoff {
+	return &ExponentialBackoff{cfg: applyConfig(opts)}
 }
 
-func (e *exponentialBackoff) Delay(attempt int) time.Duration {
-	if e.cfg.baseDelay <= 0 {
+// Delay returns baseDelay * 2^attempt, capped at maxDelay.
+func (e *ExponentialBackoff) Delay(attempt int) time.Duration {
+	if e.cfg.baseDelay <= 0 || attempt < 0 {
 		return 0
 	}
-	if attempt < 0 || attempt >= 63 {
-		return e.finalDelay()
-	}
 
-	shift := time.Duration(1) << uint(attempt) //nolint:gosec // overflow protected by attempt < 63 guard
-	if shift <= 0 || int64(shift) > math.MaxInt64/int64(e.cfg.baseDelay) {
-		return e.finalDelay()
-	}
+	multiplier := math.Pow(2, float64(attempt))
+	delay := float64(e.cfg.baseDelay) * multiplier
 
-	d := capDelay(e.cfg.baseDelay*shift, e.cfg.maxDelay)
-	if e.cfg.jitter {
-		d = applyJitter(d)
-	}
-	return d
-}
-
-func (e *exponentialBackoff) finalDelay() time.Duration {
 	d := e.cfg.maxDelay
+	if delay < float64(e.cfg.maxDelay) {
+		d = time.Duration(delay)
+	}
 	if e.cfg.jitter {
 		d = applyJitter(d)
 	}

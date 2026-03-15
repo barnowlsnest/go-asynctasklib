@@ -92,10 +92,19 @@ func TestWithHooks(t *testing.T) {
 	})
 }
 
+func TestWithRetryDelay(t *testing.T) {
+	t.Run("sets RetryDelay on definition", func(t *testing.T) {
+		var d Definition
+		opt := WithRetryDelay(200 * time.Millisecond)
+		opt(&d)
+		assert.Equal(t, 200*time.Millisecond, d.RetryDelay)
+	})
+}
+
 func TestWithRetryStrategy(t *testing.T) {
 	t.Run("sets RetryStrategy on definition", func(t *testing.T) {
 		var d Definition
-		strategy := retry.Constant(retry.WithBaseDelay(100 * time.Millisecond))
+		strategy := retry.NewLinear(retry.WithBaseDelay(100 * time.Millisecond))
 		opt := WithRetryStrategy(strategy)
 		opt(&d)
 		assert.NotNil(t, d.RetryStrategy)

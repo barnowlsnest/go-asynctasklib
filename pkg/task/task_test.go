@@ -786,12 +786,12 @@ func BenchmarkTask_AtomicOperations(b *testing.B) {
 }
 
 func TestTask_GoRetryWithStrategy(t *testing.T) {
-	t.Run("retry with constant strategy introduces delay", func(t *testing.T) {
+	t.Run("retry with constant delay introduces delay", func(t *testing.T) {
 		attempts := 0
 		task := New(Definition{
-			ID:            600,
-			MaxRetries:    3,
-			RetryStrategy: retry.Constant(retry.WithBaseDelay(50 * time.Millisecond)),
+			ID:         600,
+			MaxRetries: 3,
+			RetryDelay: 50 * time.Millisecond,
 			TaskFn: func(r *Run) error {
 				attempts++
 				if attempts < 3 {
@@ -816,9 +816,9 @@ func TestTask_GoRetryWithStrategy(t *testing.T) {
 	t.Run("context cancellation during retry delay", func(t *testing.T) {
 		attempts := 0
 		task := New(Definition{
-			ID:            601,
-			MaxRetries:    5,
-			RetryStrategy: retry.Constant(retry.WithBaseDelay(1 * time.Second)),
+			ID:         601,
+			MaxRetries: 5,
+			RetryDelay: 1 * time.Second,
 			TaskFn: func(r *Run) error {
 				attempts++
 				return errors.New("always fails")
@@ -857,4 +857,96 @@ func TestTask_GoRetryWithStrategy(t *testing.T) {
 		// Without strategy, retries should be near-instant
 		assert.Less(t, elapsed, 50*time.Millisecond)
 	})
+
+	t.Run("strategy overrides RetryDelay", func(t *testing.T) {
+		attempts := 0
+		task := New(Definition{
+			ID:         603,
+			MaxRetries: 3,
+			RetryDelay: 1 * time.Second,
+			RetryStrategy: retry.NewLinear(
+				retry.WithBaseDelay(50 * time.Millisecond),
+			),
+			TaskFn: func(r *Run) error {
+				attempts++
+				if attempts < 3 {
+					return errors.New("temporary error")
+				}
+				return nil
+			},
+		})
+
+		start := time.Now()
+		err := task.GoRetry(context.Background())
+		elapsed := time.Since(start)
+
+		require.NoError(t, err)
+		assert.Equal(t, 3, attempts)
+		// Linear strategy: 50ms + 100ms = 150ms, NOT 2s from RetryDelay
+		assert.GreaterOrEqual(t, elapsed, 150*time.Millisecond)
+		assert.Less(t, elapsed, 500*time.Millisecond)
+	})
+}
+
+func TestTask_GoRetryStrategyCompatibility(t *testing.T) {
+	tests := []struct {
+		name          string
+		retryDelay    time.Duration
+		retryStrategy retry.Strategy
+		minElapsed    time.Duration
+		maxElapsed    time.Duration
+	}{
+		{
+			name:       "RetryDelay only",
+			retryDelay: 50 * time.Millisecond,
+			minElapsed: 100 * time.Millisecond,
+			maxElapsed: 500 * time.Millisecond,
+		},
+		{
+			name:          "linear strategy",
+			retryStrategy: retry.NewLinear(retry.WithBaseDelay(50 * time.Millisecond)),
+			minElapsed:    150 * time.Millisecond, // 50ms + 100ms
+			maxElapsed:    500 * time.Millisecond,
+		},
+		{
+			name:          "exponential strategy",
+			retryStrategy: retry.NewExponentialBackoff(retry.WithBaseDelay(50 * time.Millisecond)),
+			minElapsed:    150 * time.Millisecond, // 50ms + 100ms
+			maxElapsed:    500 * time.Millisecond,
+		},
+		{
+			name:       "no delay and no strategy",
+			minElapsed: 0,
+			maxElapsed: 50 * time.Millisecond,
+		},
+	}
+
+	for i, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			attempts := 0
+			task := New(Definition{
+				ID:            uint64(700 + i),
+				MaxRetries:    3,
+				RetryDelay:    tc.retryDelay,
+				RetryStrategy: tc.retryStrategy,
+				TaskFn: func(r *Run) error {
+					attempts++
+					if attempts < 3 {
+						return errors.New("temporary error")
+					}
+					return nil
+				},
+			})
+
+			start := time.Now()
+			err := task.GoRetry(context.Background())
+			elapsed := time.Since(start)
+
+			require.NoError(t, err)
+			assert.Equal(t, 3, attempts)
+			assert.True(t, task.IsDone())
+			assert.GreaterOrEqual(t, elapsed, tc.minElapsed)
+			assert.Less(t, elapsed, tc.maxElapsed)
+		})
+	}
 }
