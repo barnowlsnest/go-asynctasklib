@@ -16,7 +16,7 @@ This command runs `go mod tidy`, formatting, vetting, linting, and tests. A code
 
 `go-asynctasklib` is a Go library for managing asynchronous tasks with lifecycle hooks, retry logic, timeouts, and state management. The library includes:
 - **Task package** (`pkg/task`) - Core async task execution with state management, hooks, retries, and timeouts
-- **Retry package** (`pkg/retry`) - Pluggable retry strategies (constant, linear, exponential backoff) with jitter
+- **Retry package** (`pkg/retry`) - Pluggable retry strategies (linear, exponential backoff) with jitter; constant delay is built into task Definition
 - **TaskGroup package** (`pkg/taskgroup`) - Manages concurrent task execution with configurable worker limits
 - **Semaphore package** (`pkg/semaphore`) - Channel-based semaphore for custom concurrency control
 
@@ -72,13 +72,14 @@ go test ./... -race -cover        # Run all tests with race detector and coverag
 - `Hooks *StateHooks` - State change callbacks
 - `Delay time.Duration` - Delay before starting
 - `MaxDuration time.Duration` - Execution timeout (default: 30s)
+- `RetryDelay time.Duration` - Constant delay between retries (used when RetryStrategy is nil)
 - `MaxRetries int` - Number of retry attempts (0 = no retries)
-- `RetryStrategy retry.Strategy` - Pluggable retry delay strategy (nil = immediate retry)
+- `RetryStrategy retry.Strategy` - Pluggable retry delay strategy (nil = use RetryDelay)
 
 **Builder Pattern** (`pkg/task/builder.go`):
 - `NewBuilder(opts ...OptionFunc) *Builder` - Create a new builder with options
 - `Build() (*Definition, error)` - Build and validate the definition
-- Option functions: `WithID`, `WithName`, `WithTaskFn`, `WithMaxRetries`, `WithDelay`, `WithTimeout`, `WithHooks`, `WithRetryStrategy`
+- Option functions: `WithID`, `WithName`, `WithTaskFn`, `WithMaxRetries`, `WithDelay`, `WithTimeout`, `WithHooks`, `WithRetryDelay`, `WithRetryStrategy`
 - Validation errors: `ErrIDNotSet`, `ErrTaskFnNotSet`, `ErrMaxRetriesNotSet`
 - Auto-generates `Name` as "task-{ID}" if not provided
 
@@ -104,15 +105,17 @@ go test ./... -race -cover        # Run all tests with race detector and coverag
 - Defaults: baseDelay=100ms, maxDelay=30s, jitter=false
 - Helpers: `capDelay` (caps at maxDelay), `applyJitter` (randomizes in [0, delay] using `crypto/rand`)
 
-**Strategies:**
-- `Constant(opts ...OptionFunc) Strategy` - Returns fixed `baseDelay` on every attempt
-- `Linear(opts ...OptionFunc) Strategy` - Returns `baseDelay * (attempt + 1)`, capped at `maxDelay`
-- `ExponentialBackoff(opts ...OptionFunc) Strategy` - Returns `baseDelay * 2^attempt`, capped at `maxDelay`, with overflow protection
+**Strategies** (for variable delay patterns):
+- `NewLinear(opts ...OptionFunc) *Linear` - Returns `baseDelay * (attempt + 1)`, capped at `maxDelay`
+- `NewExponentialBackoff(opts ...OptionFunc) *ExponentialBackoff` - Returns `baseDelay * 2^attempt`, capped at `maxDelay`, with overflow protection
+
+**Constant delay** is handled natively via `Definition.RetryDelay` — no strategy object needed.
 
 **Integration with Task:**
-- `Definition.RetryStrategy retry.Strategy` - Set on task definition (nil = immediate retry, backward compatible)
-- `GoRetry()` applies strategy delay between retry attempts, respecting context cancellation
-- Builder option: `WithRetryStrategy(strategy retry.Strategy)`
+- `Definition.RetryDelay time.Duration` - Constant delay between retries (used when RetryStrategy is nil)
+- `Definition.RetryStrategy retry.Strategy` - Set on task definition for variable delay patterns (overrides RetryDelay)
+- `GoRetry()` applies strategy delay (or RetryDelay fallback) between retry attempts, respecting context cancellation
+- Builder options: `WithRetryDelay(delay)`, `WithRetryStrategy(strategy)`
 
 #### TaskGroup Package (`pkg/taskgroup`)
 

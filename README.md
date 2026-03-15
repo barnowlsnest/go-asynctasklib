@@ -28,11 +28,11 @@ Simple Go library for managing asynchronous tasks with context-aware execution, 
 
 ### Retry Package (`pkg/retry`)
 
-- **Constant Strategy**: Fixed delay between retries
 - **Linear Strategy**: Linearly increasing delay (`baseDelay * attempt`)
 - **Exponential Backoff**: Exponentially increasing delay (`baseDelay * 2^attempt`) with overflow protection
 - **Jitter**: Optional randomization to prevent thundering herd
 - **Configurable**: Base delay, max delay cap, and jitter via functional options
+- **Constant delay** is handled natively via `Definition.RetryDelay` — no strategy needed
 
 ### Semaphore Package (`pkg/semaphore`)
 
@@ -227,19 +227,14 @@ import (
 )
 
 func main() {
-    // Exponential backoff: 200ms, 400ms, 800ms, ... capped at 5s
+    // Constant delay: just set RetryDelay on the definition — no strategy needed
     t := task.New(task.Definition{
         ID:         1,
-        Name:       "api-call",
-        MaxRetries: 5,
-        RetryStrategy: retry.ExponentialBackoff(
-            retry.WithBaseDelay(200*time.Millisecond),
-            retry.WithMaxDelay(5*time.Second),
-            retry.WithJitter(true), // Randomize to avoid thundering herd
-        ),
+        Name:       "simple-retry",
+        MaxRetries: 3,
+        RetryDelay: 200 * time.Millisecond, // Fixed 200ms between retries
         TaskFn: func(r *task.Run) error {
-            // Call external API...
-            return errors.New("rate limited")
+            return errors.New("temporary error")
         },
     })
 
@@ -248,9 +243,28 @@ func main() {
         fmt.Printf("All retries exhausted: %v\n", err)
     }
 
+    // Exponential backoff: 200ms, 400ms, 800ms, ... capped at 5s
+    t2 := task.New(task.Definition{
+        ID:         2,
+        Name:       "api-call",
+        MaxRetries: 5,
+        RetryStrategy: retry.NewExponentialBackoff(
+            retry.WithBaseDelay(200*time.Millisecond),
+            retry.WithMaxDelay(5*time.Second),
+            retry.WithJitter(true), // Randomize to avoid thundering herd
+        ),
+        TaskFn: func(r *task.Run) error {
+            return errors.New("rate limited")
+        },
+    })
+
+    if err := t2.GoRetry(ctx); err != nil {
+        fmt.Printf("All retries exhausted: %v\n", err)
+    }
+
     // Other strategies:
-    // retry.Constant()  - fixed delay between retries
-    // retry.Linear()    - linearly increasing delay
+    // retry.NewLinear()              - linearly increasing delay
+    // retry.NewExponentialBackoff()  - exponentially increasing delay
 }
 ```
 
@@ -362,8 +376,9 @@ type Definition struct {
     Hooks         *StateHooks         // State change callbacks
     Delay         time.Duration       // Delay before starting
     MaxDuration   time.Duration       // Execution timeout (default: 30s)
+    RetryDelay    time.Duration       // Constant delay between retries (used when RetryStrategy is nil)
     MaxRetries    int                 // Number of retry attempts (0 = no retries)
-    RetryStrategy retry.Strategy      // Retry delay strategy (nil = immediate retry)
+    RetryStrategy retry.Strategy      // Retry delay strategy (nil = use RetryDelay)
 }
 ```
 
@@ -383,7 +398,8 @@ def, err := task.NewBuilder(opts...).Build()
 - `WithDelay(delay time.Duration)` - Set delay before starting
 - `WithTimeout(duration time.Duration)` - Set execution timeout
 - `WithHooks(hooks *StateHooks)` - Set state change callbacks
-- `WithRetryStrategy(strategy retry.Strategy)` - Set retry delay strategy
+- `WithRetryDelay(delay time.Duration)` - Set constant delay between retries
+- `WithRetryStrategy(strategy retry.Strategy)` - Set retry delay strategy (overrides RetryDelay)
 
 **Build Errors:**
 - `ErrIDNotSet` - ID is 0
@@ -431,10 +447,11 @@ def, err := task.NewBuilder(opts...).Build()
 
 ### Retry Strategies (`pkg/retry`)
 
-**Strategies:**
-- `retry.Constant(opts ...OptionFunc) Strategy` - Fixed delay on every attempt
-- `retry.Linear(opts ...OptionFunc) Strategy` - Delay increases as `baseDelay * (attempt + 1)`
-- `retry.ExponentialBackoff(opts ...OptionFunc) Strategy` - Delay increases as `baseDelay * 2^attempt`
+**Constant delay** is built into `Definition.RetryDelay` — no strategy object needed.
+
+**Strategies** (for variable delay patterns):
+- `retry.NewLinear(opts ...OptionFunc) *Linear` - Delay increases as `baseDelay * (attempt + 1)`
+- `retry.NewExponentialBackoff(opts ...OptionFunc) *ExponentialBackoff` - Delay increases as `baseDelay * 2^attempt`
 
 **Options:**
 - `retry.WithBaseDelay(d time.Duration)` - Base delay between retries (default: 100ms)

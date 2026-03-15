@@ -70,6 +70,12 @@ func WithHooks(hooks *StateHooks) OptionFunc {
 	}
 }
 
+func WithRetryDelay(delay time.Duration) OptionFunc {
+	return func(d *Definition) {
+		d.RetryDelay = delay
+	}
+}
+
 func WithRetryStrategy(strategy retry.Strategy) OptionFunc {
 	return func(d *Definition) {
 		d.RetryStrategy = strategy
