@@ -185,11 +185,11 @@ func (tg *TaskGroup) IsStopped() bool {
 }
 
 // Stats returns statistics about the pool's tasks.
-func (tg *TaskGroup) Stats() PoolStats {
+func (tg *TaskGroup) Stats() Stats {
 	tg.mu.Lock()
 	defer tg.mu.Unlock()
 
-	stats := PoolStats{
+	stats := Stats{
 		Total:         len(tg.tasks),
 		MaxWorkers:    tg.MaxWorkers(),
 		ActiveWorkers: tg.ActiveWorkers(),
@@ -216,7 +216,7 @@ func (tg *TaskGroup) Stats() PoolStats {
 	return stats
 }
 
-type PoolStats struct {
+type Stats struct {
 	Total         int
 	Created       int
 	Pending       int
