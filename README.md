@@ -34,6 +34,15 @@ Simple Go library for managing asynchronous tasks with context-aware execution, 
 - **Configurable**: Base delay, max delay cap, and jitter via functional options
 - **Constant delay** is handled natively via `Definition.RetryDelay` — no strategy needed
 
+### Yielder Package (`pkg/yielder`)
+
+- **Generic Yielder**: One-shot, generic value generator with channel-based output
+- **Context-Aware**: Respects context cancellation during value emission
+- **Timeout Protection**: Configurable timeout watchdog stops idle yielders
+- **Panic Recovery**: Generator function panics are recovered and surfaced as errors
+- **Error Joining**: Multiple errors are accumulated via `errors.Join`
+- **Functional Options**: `WithTimeout`, `WithBuffer`, `WithGeneratorFunc`, `WithValues`
+
 ### Semaphore Package (`pkg/semaphore`)
 
 - **Semaphore**: Lock-free, channel-based semaphore with multiple acquisition modes for custom concurrency control
@@ -306,6 +315,62 @@ func main() {
 }
 ```
 
+### Yielder
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+
+    "github.com/barnowlsnest/go-asynctasklib/pkg/yielder"
+)
+
+func main() {
+    // From static values
+    a, b, c := "alpha", "beta", "gamma"
+    y, err := yielder.New[string](context.Background(),
+        yielder.WithValues([]*string{&a, &b, &c}),
+    )
+    if err != nil {
+        panic(err)
+    }
+
+    for v := range y.Results() {
+        fmt.Println(*v)
+    }
+
+    if err := y.Err(); err != nil {
+        fmt.Printf("Yielder error: %v\n", err)
+    }
+}
+```
+
+```go
+// From a generator function with custom timeout and buffer
+y, err := yielder.New[int](ctx,
+    yielder.WithGeneratorFunc(func() ([]*int, error) {
+        // fetch or compute values
+        results := []*int{&v1, &v2, &v3}
+        return results, nil
+    }),
+    yielder.WithTimeout[int](5*time.Second),
+    yielder.WithBuffer[int](10),
+)
+if err != nil {
+    panic(err)
+}
+
+// Consume results — channel closes when generation completes
+for v := range y.Results() {
+    process(*v)
+}
+
+// Or wait for completion via Done channel
+<-y.Done()
+```
+
 ## Advanced Usage
 
 ### Semaphore for Custom Concurrency Control
@@ -457,6 +522,25 @@ def, err := task.NewBuilder(opts...).Build()
 - `retry.WithBaseDelay(d time.Duration)` - Base delay between retries (default: 100ms)
 - `retry.WithMaxDelay(d time.Duration)` - Maximum delay cap (default: 30s)
 - `retry.WithJitter(bool)` - Randomize delay in [0, calculatedDelay] (default: false)
+
+### Yielder (`pkg/yielder`)
+
+- `yielder.New[T](ctx, opts ...Option[T]) (*Yielder[T], error)` - Create and start a new yielder
+- `Results() <-chan *T` - Channel of generated values (closes on completion)
+- `Done() <-chan struct{}` - Closed when the yielder finishes (success, error, timeout, or stop)
+- `Stop()` - Stop the yielder (idempotent)
+- `Err() error` - Get accumulated errors
+
+**Options:**
+- `WithGeneratorFunc[T](fn func() ([]*T, error))` - Set the generator function
+- `WithValues[T](values []*T)` - Use a static slice as the generator
+- `WithTimeout[T](d time.Duration)` - Timeout before auto-stop (default: 1s)
+- `WithBuffer[T](size int)` - Result channel buffer size (default: 1)
+
+**Errors:**
+- `ErrNil` - Generator function is nil
+- `ErrTimeout` - Yielder timed out
+- `ErrStopped` - Yielder was stopped during emission
 
 ### Semaphore Methods (`pkg/semaphore`)
 
