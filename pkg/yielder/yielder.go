@@ -18,9 +18,9 @@ const (
 // to a buffered channel. A separate timeout watchdog goroutine auto-stops the yielder
 // if generation takes too long. Panics in the generator are recovered and surfaced as errors.
 type Yielder[T comparable] struct {
-	genChan  chan *T
+	genChan  chan T
 	doneCh   chan struct{}
-	fn       func() ([]*T, error)
+	fn       func() ([]T, error)
 	err      error
 	timeout  time.Duration
 	buf      int
@@ -48,16 +48,16 @@ func WithBuffer[T comparable](buf int) Option[T] {
 
 // WithGeneratorFunc sets the generator function that produces values.
 // The function is called once; returned values are emitted through the Results channel.
-func WithGeneratorFunc[T comparable](fn func() ([]*T, error)) Option[T] {
+func WithGeneratorFunc[T comparable](fn func() ([]T, error)) Option[T] {
 	return func(y *Yielder[T]) {
 		y.fn = fn
 	}
 }
 
 // WithValues wraps a static slice into a generator function.
-func WithValues[T comparable](values []*T) Option[T] {
+func WithValues[T comparable](values []T) Option[T] {
 	return func(y *Yielder[T]) {
-		y.fn = func() ([]*T, error) {
+		y.fn = func() ([]T, error) {
 			return values, nil
 		}
 	}
@@ -67,6 +67,18 @@ func WithValues[T comparable](values []*T) Option[T] {
 // done or if no generator function is provided. The yielder begins generating
 // values immediately in a background goroutine.
 func New[T comparable](ctx context.Context, opts ...Option[T]) (*Yielder[T], error) {
+	y, err := newYielder(ctx, opts...)
+	if err != nil {
+		return nil, err
+	}
+
+	go generate[T](ctx, y)
+	go watchForTimeoutOrStop[T](ctx, y)
+
+	return y, nil
+}
+
+func newYielder[T comparable](ctx context.Context, opts ...Option[T]) (*Yielder[T], error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -79,24 +91,24 @@ func New[T comparable](ctx context.Context, opts ...Option[T]) (*Yielder[T], err
 	if y.fn == nil {
 		return nil, fmt.Errorf("invalid generator func: %w", ErrNil)
 	}
+
 	if y.timeout == time.Duration(0) {
 		y.timeout = defaultTimeout
 	}
+
 	if y.buf <= 0 {
 		y.buf = defaultBuf
 	}
 
-	y.genChan = make(chan *T, y.buf)
+	y.genChan = make(chan T, y.buf)
 	y.doneCh = make(chan struct{})
-	go generate[T](ctx, &y)
-	go checkTimeout[T](ctx, &y)
 
 	return &y, nil
 }
 
 // Results returns a read-only channel of generated values. The channel is closed
 // when generation completes, is stopped, or the context is canceled.
-func (yr *Yielder[T]) Results() <-chan *T {
+func (yr *Yielder[T]) Results() <-chan T {
 	return yr.genChan
 }
 
@@ -164,7 +176,7 @@ func generate[T comparable](ctx context.Context, y *Yielder[T]) {
 	}(y)
 }
 
-func checkTimeout[T comparable](ctx context.Context, y *Yielder[T]) {
+func watchForTimeoutOrStop[T comparable](ctx context.Context, y *Yielder[T]) {
 	select {
 	case <-ctx.Done():
 		return

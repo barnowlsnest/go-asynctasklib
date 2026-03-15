@@ -156,14 +156,14 @@ go test ./... -race -cover        # Run all tests with race detector and coverag
   - `buf int` - Result channel buffer size (default: 1)
   - `mu sync.Mutex` - Protects `err` field
   - `onceStop sync.Once` - Ensures single close of `doneCh`
-  - `genChan chan *T` - Buffered channel for emitting values
+  - `genChan chan T` - Buffered channel for emitting values
   - `doneCh chan struct{}` - Closed when yielder finishes
-  - `fn func() ([]*T, error)` - Generator function
+  - `fn func() ([]T, error)` - Generator function
   - `err error` - Accumulated errors
 - Constructor: `New[T](ctx, opts ...Option[T]) (*Yielder[T], error)` - Returns error if ctx is done or fn is nil
 - Options: `WithTimeout`, `WithBuffer`, `WithGeneratorFunc`, `WithValues`
 - Key methods:
-  - `Results() <-chan *T` - Read-only channel of generated values
+  - `Results() <-chan T` - Read-only channel of generated values
   - `Done() <-chan struct{}` - Closed on completion
   - `Stop()` - Idempotent stop via `sync.Once`
   - `Err() error` - Mutex-protected error accessor

@@ -23,7 +23,7 @@ func (s *YielderSuite) TestNewReturnsErrorOnCancelledContext() {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	y, err := New[int](ctx, WithValues(ptrs(1)))
+	y, err := New[int](ctx, WithValues([]int{1}))
 	s.Nil(y)
 	s.ErrorIs(err, context.Canceled)
 }
@@ -35,14 +35,14 @@ func (s *YielderSuite) TestNewReturnsErrorWhenFnIsNil() {
 }
 
 func (s *YielderSuite) TestNewAppliesDefaultTimeout() {
-	y, err := New[int](context.Background(), WithValues(ptrs(1)))
+	y, err := New[int](context.Background(), WithValues([]int{1}))
 	s.NoError(err)
 	defer y.Stop()
 	s.Equal(defaultTimeout, y.timeout)
 }
 
 func (s *YielderSuite) TestNewAppliesDefaultBufOnNegative() {
-	y, err := New[int](context.Background(), WithValues(ptrs(1)), WithBuffer[int](-5))
+	y, err := New[int](context.Background(), WithValues([]int{1}), WithBuffer[int](-5))
 	s.NoError(err)
 	defer y.Stop()
 	s.Equal(defaultBuf, y.buf)
@@ -50,7 +50,7 @@ func (s *YielderSuite) TestNewAppliesDefaultBufOnNegative() {
 
 func (s *YielderSuite) TestNewRespectsCustomTimeout() {
 	y, err := New[int](context.Background(),
-		WithValues(ptrs(1)),
+		WithValues([]int{1}),
 		WithTimeout[int](5*time.Second),
 	)
 	s.NoError(err)
@@ -59,7 +59,7 @@ func (s *YielderSuite) TestNewRespectsCustomTimeout() {
 }
 
 func (s *YielderSuite) TestNewRespectsCustomBuffer() {
-	y, err := New[int](context.Background(), WithValues(ptrs(1)), WithBuffer[int](10))
+	y, err := New[int](context.Background(), WithValues([]int{1}), WithBuffer[int](10))
 	s.NoError(err)
 	defer y.Stop()
 	s.Equal(10, y.buf)
@@ -68,13 +68,12 @@ func (s *YielderSuite) TestNewRespectsCustomBuffer() {
 // --- WithValues ---
 
 func (s *YielderSuite) TestWithValuesEmitsAllValues() {
-	vals := ptrs(1, 2, 3, 4, 5)
-	y, err := New[int](context.Background(), WithValues(vals))
+	y, err := New[int](context.Background(), WithValues([]int{1, 2, 3, 4, 5}))
 	s.NoError(err)
 
 	var got []int
 	for v := range y.Results() {
-		got = append(got, *v)
+		got = append(got, v)
 	}
 	s.Equal([]int{1, 2, 3, 4, 5}, got)
 	s.NoError(y.Err())
@@ -86,7 +85,7 @@ func (s *YielderSuite) TestWithValuesEmptySlice() {
 
 	var got []int
 	for v := range y.Results() {
-		got = append(got, *v)
+		got = append(got, v)
 	}
 	s.Empty(got)
 	s.NoError(y.Err())
@@ -96,16 +95,15 @@ func (s *YielderSuite) TestWithValuesEmptySlice() {
 
 func (s *YielderSuite) TestWithGeneratorFuncEmitsValues() {
 	y, err := New[string](context.Background(),
-		WithGeneratorFunc(func() ([]*string, error) {
-			a, b := "hello", "world"
-			return []*string{&a, &b}, nil
+		WithGeneratorFunc(func() ([]string, error) {
+			return []string{"hello", "world"}, nil
 		}),
 	)
 	s.NoError(err)
 
 	var got []string
 	for v := range y.Results() {
-		got = append(got, *v)
+		got = append(got, v)
 	}
 	s.Equal([]string{"hello", "world"}, got)
 	s.NoError(y.Err())
@@ -114,7 +112,7 @@ func (s *YielderSuite) TestWithGeneratorFuncEmitsValues() {
 func (s *YielderSuite) TestGeneratorFuncErrorStopsYielder() {
 	genErr := errors.New("generator failed")
 	y, err := New[int](context.Background(),
-		WithGeneratorFunc(func() ([]*int, error) {
+		WithGeneratorFunc(func() ([]int, error) {
 			return nil, genErr
 		}),
 	)
@@ -131,7 +129,7 @@ func (s *YielderSuite) TestGeneratorFuncErrorStopsYielder() {
 
 func (s *YielderSuite) TestPanicInGeneratorIsRecovered() {
 	y, err := New[int](context.Background(),
-		WithGeneratorFunc(func() ([]*int, error) {
+		WithGeneratorFunc(func() ([]int, error) {
 			panic("boom")
 		}),
 	)
@@ -149,7 +147,7 @@ func (s *YielderSuite) TestPanicInGeneratorIsRecovered() {
 
 func (s *YielderSuite) TestStopClosesResultsChannel() {
 	y, err := New[int](context.Background(),
-		WithValues(ptrs(1, 2, 3)),
+		WithValues([]int{1, 2, 3}),
 		WithBuffer[int](0),
 		WithTimeout[int](10*time.Second),
 	)
@@ -160,14 +158,14 @@ func (s *YielderSuite) TestStopClosesResultsChannel() {
 
 	var got []int
 	for v := range y.Results() {
-		got = append(got, *v)
+		got = append(got, v)
 	}
 	// may have emitted some or none before stop
 	s.LessOrEqual(len(got), 3)
 }
 
 func (s *YielderSuite) TestStopIsIdempotent() {
-	y, err := New[int](context.Background(), WithValues(ptrs(1)))
+	y, err := New[int](context.Background(), WithValues([]int{1}))
 	s.NoError(err)
 
 	s.NotPanics(func() {
@@ -182,7 +180,7 @@ func (s *YielderSuite) TestStopIsIdempotent() {
 func (s *YielderSuite) TestContextCancellationStopsYielder() {
 	ctx, cancel := context.WithCancel(context.Background())
 	y, err := New[int](ctx,
-		WithValues(ptrs(1, 2, 3, 4, 5)),
+		WithValues([]int{1, 2, 3, 4, 5}),
 		WithBuffer[int](0),
 		WithTimeout[int](10*time.Second),
 	)
@@ -207,7 +205,7 @@ func (s *YielderSuite) TestContextCancellationStopsYielder() {
 func (s *YielderSuite) TestTimeoutStopsYielder() {
 	// generator that blocks forever on send (buf=0, nobody reading)
 	y, err := New[int](context.Background(),
-		WithValues(ptrs(1, 2, 3)),
+		WithValues([]int{1, 2, 3}),
 		WithBuffer[int](0),
 		WithTimeout[int](50*time.Millisecond),
 	)
@@ -223,7 +221,7 @@ func (s *YielderSuite) TestTimeoutStopsYielder() {
 // --- Done channel ---
 
 func (s *YielderSuite) TestDoneClosedOnNormalCompletion() {
-	y, err := New[int](context.Background(), WithValues(ptrs(1)))
+	y, err := New[int](context.Background(), WithValues([]int{1}))
 	s.NoError(err)
 
 	select {
@@ -237,7 +235,7 @@ func (s *YielderSuite) TestDoneClosedOnNormalCompletion() {
 // --- Error joining ---
 
 func (s *YielderSuite) TestSetErrJoinsMultipleErrors() {
-	y, err := New[int](context.Background(), WithValues(ptrs(1)))
+	y, err := New[int](context.Background(), WithValues([]int{1}))
 	s.NoError(err)
 	<-y.Done()
 
@@ -248,14 +246,4 @@ func (s *YielderSuite) TestSetErrJoinsMultipleErrors() {
 
 	s.ErrorIs(y.Err(), first)
 	s.ErrorIs(y.Err(), second)
-}
-
-// --- helpers ---
-
-func ptrs[T comparable](vals ...T) []*T {
-	out := make([]*T, len(vals))
-	for i := range vals {
-		out[i] = &vals[i]
-	}
-	return out
 }
