@@ -18,6 +18,7 @@ This command runs `go mod tidy`, formatting, vetting, linting, and tests. A code
 - **Task package** (`pkg/task`) - Core async task execution with state management, hooks, retries, and timeouts
 - **Retry package** (`pkg/retry`) - Pluggable retry strategies (linear, exponential backoff) with jitter; constant delay is built into task Definition
 - **TaskGroup package** (`pkg/taskgroup`) - Manages concurrent task execution with configurable worker limits
+- **Yielder package** (`pkg/yielder`) - Generic one-shot value generator with channel output, timeout, and panic recovery
 - **Semaphore package** (`pkg/semaphore`) - Channel-based semaphore for custom concurrency control
 
 The library uses atomic operations and goroutines for safe concurrent task execution.
@@ -49,6 +50,7 @@ go test ./pkg/task -v -race       # Run task tests with race detector
 go test ./pkg/retry -v -race      # Run retry tests with race detector
 go test ./pkg/taskgroup -v -race  # Run taskgroup tests with race detector
 go test ./pkg/semaphore -v -race  # Run semaphore tests with race detector
+go test ./pkg/yielder -v -race    # Run yielder tests with race detector
 go test ./... -race -cover        # Run all tests with race detector and coverage
 ```
 
@@ -141,6 +143,35 @@ go test ./... -race -cover        # Run all tests with race detector and coverag
   - `IsStopped() bool` - Check if TaskGroup is stopped
   - `Stats() PoolStats` - Get statistics about tasks
 
+#### Yielder Package (`pkg/yielder`)
+
+**Yielder** (`pkg/yielder/yielder.go`):
+- Generic, one-shot value generator that emits results through a channel
+- Runs generator function in a goroutine, sends values via buffered channel
+- Separate timeout watchdog goroutine auto-stops idle yielders
+- Thread-safe error accumulation via `sync.Mutex` and `errors.Join`
+- `sync.Once` ensures `doneCh` is closed exactly once across `Stop()` and `generate` defer
+- Yielder struct fields:
+  - `timeout time.Duration` - Timeout before auto-stop (default: 1s)
+  - `buf int` - Result channel buffer size (default: 1)
+  - `mu sync.Mutex` - Protects `err` field
+  - `onceStop sync.Once` - Ensures single close of `doneCh`
+  - `genChan chan *T` - Buffered channel for emitting values
+  - `doneCh chan struct{}` - Closed when yielder finishes
+  - `fn func() ([]*T, error)` - Generator function
+  - `err error` - Accumulated errors
+- Constructor: `New[T](ctx, opts ...Option[T]) (*Yielder[T], error)` - Returns error if ctx is done or fn is nil
+- Options: `WithTimeout`, `WithBuffer`, `WithGeneratorFunc`, `WithValues`
+- Key methods:
+  - `Results() <-chan *T` - Read-only channel of generated values
+  - `Done() <-chan struct{}` - Closed on completion
+  - `Stop()` - Idempotent stop via `sync.Once`
+  - `Err() error` - Mutex-protected error accessor
+- Internal:
+  - `generate()` - Goroutine that calls `fn`, sends values with `select` on `ctx.Done`/`doneCh`, recovers panics
+  - `checkTimeout()` - Goroutine that calls `Stop()` after timeout, exits early on `ctx.Done` or `doneCh`
+- Errors: `ErrNil` (nil generator), `ErrTimeout` (unused directly, timeout triggers `ErrStopped`), `ErrStopped` (stopped during emission)
+
 #### Semaphore Package (`pkg/semaphore`)
 
 **Semaphore** (`pkg/semaphore/semaphore.go`):
@@ -178,6 +209,7 @@ go test ./... -race -cover        # Run all tests with race detector and coverag
 
 - **Task errors** (`pkg/task/errors.go`): `ErrTaskXxx` pattern
 - **TaskGroup errors** (`pkg/taskgroup/errors.go`): `ErrTaskGroupStopped`, `ErrTaskGroupMaxWorkers`
+- **Yielder errors** (`pkg/yielder/errors.go`): `ErrNil`, `ErrTimeout`, `ErrStopped`
 
 ## Linting Constraints (`.golangci.yaml`)
 
