@@ -38,21 +38,23 @@ func (tg *TaskGroup) Submit(ctx context.Context, def task.Definition) (*task.Tas
 		return nil, ErrTaskGroupStopped
 	}
 
+	// Acquire semaphore slot (blocks until worker available)
+	if err := tg.sem.AcquireWithContext(ctx); err != nil {
+		return nil, err
+	}
+
 	t := task.New(def)
+
+	// Start the task
+	if err := t.Go(ctx); err != nil {
+		tg.sem.Release()
+		return nil, err
+	}
 
 	// Add to the task list under lock
 	tg.mu.Lock()
 	tg.tasks = append(tg.tasks, t)
 	tg.mu.Unlock()
-
-	// Acquire semaphore slot (blocks until worker available)
-	tg.sem.Acquire()
-
-	// Start the task
-	if err := t.Go(ctx); err != nil {
-		tg.sem.Release()
-		return t, err
-	}
 
 	// Release semaphore when the task completes
 	tg.releaseWg.Go(func() {
