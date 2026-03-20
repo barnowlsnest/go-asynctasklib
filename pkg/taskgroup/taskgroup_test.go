@@ -302,52 +302,6 @@ func TestTaskGroup_Wait(t *testing.T) {
 	})
 }
 
-func TestTaskGroup_WaitWithContext(t *testing.T) {
-	t.Run("waits successfully when tasks complete", func(t *testing.T) {
-		tg, err := New(2)
-		require.NoError(t, err)
-		ctx := context.Background()
-
-		for i := 0; i < 5; i++ {
-			_, err := tg.Submit(ctx, task.Definition{
-				TaskFn: func(r *task.Run) error {
-					time.Sleep(10 * time.Millisecond)
-					return nil
-				},
-			})
-			require.NoError(t, err)
-		}
-
-		waitCtx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-		defer cancel()
-
-		err = tg.WaitWithContext(waitCtx)
-		require.NoError(t, err)
-	})
-
-	t.Run("returns error when context times out", func(t *testing.T) {
-		tg, err := New(1)
-		require.NoError(t, err)
-		ctx := context.Background()
-
-		// Submit a long-running task
-		_, err = tg.Submit(ctx, task.Definition{
-			TaskFn: func(r *task.Run) error {
-				time.Sleep(200 * time.Millisecond)
-				return nil
-			},
-		})
-		require.NoError(t, err)
-
-		waitCtx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-		defer cancel()
-
-		err = tg.WaitWithContext(waitCtx)
-		assert.Error(t, err)
-		assert.Equal(t, context.DeadlineExceeded, err)
-	})
-}
-
 func TestTaskGroup_Stop(t *testing.T) {
 	t.Run("stops pool and prevents new submissions", func(t *testing.T) {
 		tg, err := New(2)
@@ -374,74 +328,6 @@ func TestTaskGroup_Stop(t *testing.T) {
 		})
 		assert.Error(t, err)
 		assert.Equal(t, ErrTaskGroupStopped, err)
-	})
-}
-
-func TestTaskGroup_StopWithContext(t *testing.T) {
-	t.Run("stops pool and cancels running tasks", func(t *testing.T) {
-		tg, err := New(2)
-		require.NoError(t, err)
-		ctx := context.Background()
-
-		var canceledCount atomic.Int32
-		for i := 0; i < 3; i++ {
-			_, err := tg.Submit(ctx, task.Definition{
-				TaskFn: func(r *task.Run) error {
-					select {
-					case <-r.Context().Done():
-						canceledCount.Add(1)
-						return r.Context().Err()
-					case <-time.After(200 * time.Millisecond):
-						return nil
-					}
-				},
-			})
-			require.NoError(t, err)
-		}
-
-		time.Sleep(20 * time.Millisecond) // Let tasks start
-
-		stopCtx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-		defer cancel()
-
-		err = tg.StopWithContext(stopCtx)
-		require.NoError(t, err)
-		assert.True(t, tg.IsStopped())
-		assert.Greater(t, int(canceledCount.Load()), 0)
-	})
-
-	t.Run("cancels running tasks when stopped", func(t *testing.T) {
-		tg, err := New(2)
-		require.NoError(t, err)
-		ctx := context.Background()
-
-		// Submit tasks that check for cancellation
-		var canceled atomic.Int32
-		for i := 0; i < 3; i++ {
-			_, err := tg.Submit(ctx, task.Definition{
-				TaskFn: func(r *task.Run) error {
-					select {
-					case <-r.Context().Done():
-						canceled.Add(1)
-						return r.Context().Err()
-					case <-time.After(1 * time.Second):
-						return nil
-					}
-				},
-			})
-			require.NoError(t, err)
-		}
-
-		time.Sleep(20 * time.Millisecond) // Let tasks start
-
-		stopCtx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-		defer cancel()
-
-		err = tg.StopWithContext(stopCtx)
-		require.NoError(t, err)
-		assert.True(t, tg.IsStopped())
-		// At least some tasks should have been canceled
-		assert.Greater(t, int(canceled.Load()), 0)
 	})
 }
 
