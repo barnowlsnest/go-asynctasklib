@@ -118,29 +118,7 @@ func (tg *TaskGroup) Wait() {
 	wg.Wait()
 }
 
-func (tg *TaskGroup) WaitWithContext(ctx context.Context) error {
-	done := make(chan struct{})
-
-	go func() {
-		tg.Wait()
-		close(done)
-	}()
-
-	select {
-	case <-done:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-}
-
 func (tg *TaskGroup) Stop() {
-	tg.stopped.Store(true)
-}
-
-func (tg *TaskGroup) StopWithContext(ctx context.Context) error {
-	tg.Stop()
-
 	tg.mu.Lock()
 	tasksCopy := make([]*task.Task, len(tg.tasks))
 	copy(tasksCopy, tg.tasks)
@@ -152,7 +130,7 @@ func (tg *TaskGroup) StopWithContext(ctx context.Context) error {
 		}
 	}
 
-	return tg.WaitWithContext(ctx)
+	tg.stopped.Store(true)
 }
 
 func (tg *TaskGroup) Tasks() []*task.Task {

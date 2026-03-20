@@ -490,9 +490,7 @@ def, err := task.NewBuilder(opts...).Build()
 - `SubmitBatch(ctx, defs) ([]*Task, error)` - Submit multiple tasks
 - `SubmitWithErrGroup(ctx, defs) error` - Submit with coordinated error handling
 - `Wait()` - Wait for all tasks to complete
-- `WaitWithContext(ctx) error` - Context-aware wait
 - `Stop()` - Stop accepting new tasks
-- `StopWithContext(ctx) error` - Stop and cancel in-progress tasks with context
 - `Stats() Stats` - Get pool statistics
 - `Tasks() []*Task` - Get copy of all submitted tasks
 - `IsStopped() bool` - Check if task group is stopped

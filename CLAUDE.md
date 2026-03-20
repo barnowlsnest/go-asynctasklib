@@ -138,7 +138,7 @@ go test ./... -race -cover        # Run all tests with race detector and coverag
   - `SubmitBatch(ctx, []Definition) ([]*Task, error)` - Submit multiple tasks
   - `SubmitWithErrGroup(ctx, []Definition) error` - Submit with errgroup coordination
   - `Wait()` - Wait for all tasks AND semaphore releases to complete
-  - `Stop()` / `StopWithContext(ctx) error` - Graceful/forceful shutdown
+  - `Stop()` - Graceful/forceful shutdown
   - `Tasks() []*Task` - Get copy of all submitted tasks
   - `IsStopped() bool` - Check if TaskGroup is stopped
   - `Stats() Stats` - Get statistics about tasks
