@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -14,15 +15,16 @@ type (
 	CtxString string
 
 	Worker[T any] struct {
+		events    Events[T]
+		jobs      JobChannel[T]
 		onceJoin  sync.Once
 		onceLeave sync.Once
 		done      chan struct{}
 		jobInput  chan *T
-		events    Events[T]
-		jobs      JobChannel[T]
 		handlerFn func(context.Context, *T) error
 		ctxFn     func() context.Context
 		cancel    func()
+		started   atomic.Bool
 	}
 
 	Events[T any] interface {
@@ -131,6 +133,7 @@ func (w *Worker[T]) runLoop(dispatcher Dispatcher[T]) {
 			return
 		case dispatcher <- Claim[T]{ID: w.ID(), Job: w.jobInput}:
 			onceStarted.Do(func() {
+				w.started.Store(true)
 				w.events.WorkerStarted(w.ID())
 			})
 			continue
@@ -178,6 +181,10 @@ func (w *Worker[T]) LeaveJobChannel() {
 }
 
 func (w *Worker[T]) Shutdown(timeout time.Duration) error {
+	if !w.started.Load() {
+		return nil
+	}
+
 	defer w.events.WorkerStopped(w.ID())
 	w.LeaveJobChannel()
 	w.cancel()

@@ -83,16 +83,17 @@ func (l *Labor[T]) submitJob(job *T) error {
 	}
 
 	l.mu.RLock()
-	defer l.mu.RUnlock()
-
 	if len(l.activeWorkersSet) == 0 {
+		l.mu.RUnlock()
 		return ErrNoActiveWorkers
 	}
 
 	_, exists := l.activeWorkersSet[claim.ID]
 	if !exists {
+		l.mu.RUnlock()
 		return fmt.Errorf("worker %d is not active", claim.ID)
 	}
+	l.mu.RUnlock()
 
 	claim.Job <- job
 
@@ -130,12 +131,13 @@ func (l *Labor[T]) Subscribe(w *Worker[T]) error {
 		return ErrInvalidWorker
 	}
 
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
 	if len(l.activeWorkersSet) == l.cfg.MaxSize {
 		return ErrMaxPoolSize
 	}
 
-	l.mu.Lock()
-	defer l.mu.Unlock()
 	l.activeWorkersSet[w.ID()] = struct{}{}
 	delete(l.idleWorkersSet, w.ID())
 
