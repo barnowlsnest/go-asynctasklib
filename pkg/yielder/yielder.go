@@ -106,7 +106,7 @@ func newYielder[T comparable](ctx context.Context, opts ...Option[T]) (*Yielder[
 	return &y, nil
 }
 
-// Results returns a read-only channel of generated values. The channel is closed
+// Results return a read-only channel of generated values. The channel is closed
 // when generation completes, is stopped, or the context is canceled.
 func (yr *Yielder[T]) Results() <-chan T {
 	return yr.genChan
@@ -119,7 +119,7 @@ func (yr *Yielder[T]) Err() error {
 	return yr.err
 }
 
-// Done returns a channel that is closed when the yielder finishes, regardless of
+// Done returns a channel closed when the yielder finishes, regardless of
 // whether it completed successfully, errored, timed out, or was stopped.
 func (yr *Yielder[T]) Done() <-chan struct{} {
 	return yr.doneCh

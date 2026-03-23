@@ -12,4 +12,5 @@ var (
 	ErrNilJob           = errors.New("err nil job")
 	ErrDispatcherClosed = errors.New("dispatcher closed")
 	ErrNoActiveWorkers  = errors.New("no active workers")
+	ErrNilCfg           = errors.New("err nil worker pool config")
 )

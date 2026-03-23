@@ -16,7 +16,7 @@ type (
 
 	Worker[T any] struct {
 		events    Events[T]
-		jobs      JobChannel[T]
+		jobs      *jobChannel[T]
 		onceJoin  sync.Once
 		onceLeave sync.Once
 		done      chan struct{}
@@ -37,26 +37,20 @@ type (
 		Unsubscribed(uint64)
 	}
 
-	JobChannel[T any] interface {
-		Subscribe(*Worker[T]) error
-		Unsubscribe(*Worker[T])
-		Jobs() Dispatcher[T]
-	}
-
 	WorkerConfig[T any] struct {
 		ID uint64
 		Events[T]
 		HandlerFunc[T]
 	}
 
-	Claim[T any] struct {
-		ID  uint64
-		Job chan *T
+	claim[T any] struct {
+		id    uint64
+		jobCh chan *T
 	}
 
 	HandlerFunc[T any] func(context.Context, *T) error
 
-	Dispatcher[T any] chan Claim[T]
+	dispatcher[T any] chan claim[T]
 )
 
 func newWorkerContext(parentCtx context.Context, id uint64) (ctxFunc func() context.Context, cancelFunc func()) {
@@ -106,32 +100,32 @@ func (w *Worker[T]) ID() uint64 {
 	return w.ctxFn().Value(CtxWorkerID).(uint64)
 }
 
-func (w *Worker[T]) Join(jobs JobChannel[T]) {
+func (w *Worker[T]) join(jobs *jobChannel[T]) {
 	if jobs == nil {
 		return
 	}
 
 	w.onceJoin.Do(func() {
-		if err := jobs.Subscribe(w); err != nil {
+		if err := jobs.subscribe(w); err != nil {
 			w.events.SubscribeFailed(err, w.ID())
 			return
 		}
 
 		w.events.Subscribed(w.ID())
-		w.jobs = jobs
+		w.jobs = jobs // for the reference when unsubscribing
 		w.jobInput = make(chan *T)
-		w.runLoop(jobs.Jobs())
+		w.runLoop(jobs.jobs())
 	})
 }
 
-func (w *Worker[T]) runLoop(dispatcher Dispatcher[T]) {
+func (w *Worker[T]) runLoop(dispatcher dispatcher[T]) {
 	defer close(w.done)
 	var onceStarted sync.Once
 	for {
 		select {
 		case <-w.ctxFn().Done():
 			return
-		case dispatcher <- Claim[T]{ID: w.ID(), Job: w.jobInput}:
+		case dispatcher <- claim[T]{id: w.ID(), jobCh: w.jobInput}:
 			onceStarted.Do(func() {
 				w.started.Store(true)
 				w.events.WorkerStarted(w.ID())
@@ -173,7 +167,7 @@ func (w *Worker[T]) LeaveJobChannel() {
 	}
 
 	w.onceLeave.Do(func() {
-		w.jobs.Unsubscribe(w)
+		w.jobs.unsubscribe(w)
 		w.events.Unsubscribed(w.ID())
 		close(w.jobInput)
 		w.jobInput = nil

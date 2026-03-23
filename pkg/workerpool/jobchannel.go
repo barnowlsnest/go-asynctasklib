@@ -5,169 +5,159 @@ import (
 	"fmt"
 	"sync"
 	"time"
-
-	"golang.org/x/time/rate"
-
+	
 	"github.com/barnowlsnest/go-asynctasklib/pkg/retry"
 	"github.com/barnowlsnest/go-asynctasklib/pkg/task"
 )
 
 const (
-	defaultMaxSize          = 10
-	defaultMaxSubmitRetries = 3
-	defaultBaseRetryDelay   = time.Second
-	defaultMaxRetryDelay    = 10 * time.Second
+	defaultMaxSize          = 4
+	defaultMaxSubmitRetries = 6
+	defaultBaseRetryDelay   = 500 * time.Millisecond
+	defaultMaxRetryDelay    = 5 * time.Second
 	defaultRPS              = 100
-	defaultBurst            = 5
+	defaultBurst            = 3
 )
 
 const submitJobTaskID = 1
 
 type (
-	Labor[T any] struct {
+	jobChannel[T any] struct {
 		mu               sync.RWMutex
-		cfg              *LaborConfig
+		cfg              *JobChannelConfig
 		activeWorkersSet map[uint64]struct{}
 		idleWorkersSet   map[uint64]struct{}
-		dispatcher       Dispatcher[T]
+		dispatcher       dispatcher[T]
 	}
-
-	LaborConfig struct {
+	
+	JobChannelConfig struct {
 		MaxSize          int
 		MaxSubmitRetries int
 		BaseRetryDelay   time.Duration
 		MaxRetryDelay    time.Duration
-		RateLimit        *rate.Limiter
 	}
 )
 
-func NewLabor[T any](cfg *LaborConfig) *Labor[T] {
+func newJobChannel[T any](cfg *JobChannelConfig) *jobChannel[T] {
 	if cfg == nil {
-		cfg = &LaborConfig{
+		cfg = &JobChannelConfig{
 			MaxSize:          defaultMaxSize,
 			MaxSubmitRetries: defaultMaxSubmitRetries,
 			BaseRetryDelay:   defaultBaseRetryDelay,
 			MaxRetryDelay:    defaultMaxRetryDelay,
-			RateLimit:        rate.NewLimiter(defaultRPS, defaultBurst),
 		}
 	}
-
+	
 	if cfg.MaxSize <= 0 {
 		cfg.MaxSize = defaultMaxSize
 	}
-
+	
 	if cfg.BaseRetryDelay == time.Duration(0) {
 		cfg.BaseRetryDelay = defaultBaseRetryDelay
 	}
-
+	
 	if cfg.MaxRetryDelay == time.Duration(0) {
 		cfg.MaxRetryDelay = defaultMaxRetryDelay
 	}
-
-	if cfg.RateLimit == nil {
-		cfg.RateLimit = rate.NewLimiter(defaultRPS, defaultBurst)
-	}
-
-	return &Labor[T]{
+	
+	return &jobChannel[T]{
 		cfg:              cfg,
-		dispatcher:       make(Dispatcher[T], cfg.MaxSize),
+		dispatcher:       make(dispatcher[T], cfg.MaxSize),
 		activeWorkersSet: make(map[uint64]struct{}, cfg.MaxSize),
 		idleWorkersSet:   make(map[uint64]struct{}, cfg.MaxSize),
 	}
 }
 
-func (l *Labor[T]) submitJob(job *T) error {
-	claim, ok := <-l.dispatcher
+func (l *jobChannel[T]) submitJob(job *T) error {
+	c, ok := <-l.dispatcher
 	if !ok {
 		return ErrDispatcherClosed
 	}
-
+	
 	l.mu.RLock()
+	defer l.mu.RUnlock()
+	
 	if len(l.activeWorkersSet) == 0 {
-		l.mu.RUnlock()
 		return ErrNoActiveWorkers
 	}
-
-	_, exists := l.activeWorkersSet[claim.ID]
+	
+	_, exists := l.activeWorkersSet[c.id]
 	if !exists {
-		l.mu.RUnlock()
-		return fmt.Errorf("worker %d is not active", claim.ID)
+		return fmt.Errorf("worker %d is not active", c.id)
 	}
-	l.mu.RUnlock()
-
-	claim.Job <- job
-
+	
+	c.jobCh <- job
+	
 	return nil
 }
 
-func (l *Labor[T]) newRetriableSubmit(job *T) (*task.Task, error) {
+func (l *jobChannel[T]) newRetriableSubmit(job *T) (*task.Task, error) {
 	if job == nil {
 		return nil, ErrNilJob
 	}
-
+	
 	cfg := l.cfg
 	retrier := retry.NewExponentialBackoff(
 		retry.WithBaseDelay(cfg.BaseRetryDelay),
 		retry.WithMaxDelay(cfg.MaxRetryDelay),
 		retry.WithJitter(true),
 	)
-
-	def, err := task.NewBuilder(
+	
+	b := task.NewBuilder(
 		task.WithID(submitJobTaskID),
 		task.WithMaxRetries(cfg.MaxSubmitRetries),
 		task.WithRetryStrategy(retrier),
 		task.WithTaskFn(func(_ *task.Run) error { return l.submitJob(job) }),
-	).Build()
-
+	)
+	
+	def, err := b.Build()
+	
 	if err != nil {
 		return nil, err
 	}
-
+	
 	return task.New(*def), nil
 }
 
-func (l *Labor[T]) Subscribe(w *Worker[T]) error {
+func (l *jobChannel[T]) subscribe(w *Worker[T]) error {
 	if w == nil {
 		return ErrInvalidWorker
 	}
-
+	
 	l.mu.Lock()
 	defer l.mu.Unlock()
-
-	if len(l.activeWorkersSet) == l.cfg.MaxSize {
+	
+	if len(l.activeWorkersSet) >= l.cfg.MaxSize {
 		return ErrMaxPoolSize
 	}
-
+	
 	l.activeWorkersSet[w.ID()] = struct{}{}
 	delete(l.idleWorkersSet, w.ID())
-
+	
 	return nil
 }
 
-func (l *Labor[T]) Unsubscribe(w *Worker[T]) {
+func (l *jobChannel[T]) unsubscribe(w *Worker[T]) {
 	if w == nil {
 		return
 	}
-
+	
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	
 	delete(l.activeWorkersSet, w.ID())
 	l.idleWorkersSet[w.ID()] = struct{}{}
 }
 
-func (l *Labor[T]) Jobs() Dispatcher[T] {
+func (l *jobChannel[T]) jobs() dispatcher[T] {
 	return l.dispatcher
 }
 
-func (l *Labor[T]) Submit(ctx context.Context, job *T) error {
-	if err := l.cfg.RateLimit.Wait(ctx); err != nil {
-		return err
-	}
-
+func (l *jobChannel[T]) submit(ctx context.Context, job *T) error {
 	submit, err := l.newRetriableSubmit(job)
 	if err != nil {
 		return err
 	}
-
+	
 	return submit.GoRetry(ctx)
 }
