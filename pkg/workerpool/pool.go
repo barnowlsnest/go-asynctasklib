@@ -2,7 +2,6 @@ package workerpool
 
 import (
 	"context"
-	"sync"
 
 	"golang.org/x/time/rate"
 )
@@ -10,7 +9,6 @@ import (
 type (
 	WorkerPool[T any] struct {
 		workers []*Worker[T]
-		wg      sync.WaitGroup
 		jobs    *jobChannel[T]
 		cfg     *Config[T]
 	}

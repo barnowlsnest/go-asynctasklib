@@ -100,7 +100,7 @@ func (w *Worker[T]) ID() uint64 {
 	return w.ctxFn().Value(CtxWorkerID).(uint64)
 }
 
-func (w *Worker[T]) join(jobs *jobChannel[T]) {
+func (w *Worker[T]) Join(jobs *jobChannel[T]) {
 	if jobs == nil {
 		return
 	}
