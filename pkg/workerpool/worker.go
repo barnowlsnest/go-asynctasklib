@@ -151,10 +151,9 @@ func (w *Worker[T]) processJob(job *T) (err error) {
 			err = errors.Join(ErrWorkerPanic, fmt.Errorf("%+v", r))
 		}
 	}()
-	ctx := w.ctxFn()
 
-	err = ctx.Err()
-	if err != nil {
+	ctx := w.ctxFn()
+	if err = ctx.Err(); err != nil {
 		return err
 	}
 
