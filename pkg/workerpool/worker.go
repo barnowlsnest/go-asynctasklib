@@ -152,8 +152,7 @@ func (w *Worker[T]) processJob(job *T) (err error) {
 		}
 	}()
 
-	ctx := w.ctxFn()
-	if err = ctx.Err(); err != nil {
+	if err = w.ctxFn().Err(); err != nil {
 		return err
 	}
 
