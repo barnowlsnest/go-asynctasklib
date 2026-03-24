@@ -64,7 +64,7 @@ func newWorkerContext(parentCtx context.Context, id uint64) (ctxFunc func() cont
 	return ctxFunc, cancelFunc
 }
 
-func NewWorker[T any](parentCtx context.Context, p *WorkerConfig[T]) (*Worker[T], error) {
+func NewWorker[T any](parentCtx context.Context, cfg *WorkerConfig[T]) (*Worker[T], error) {
 	pCtx := parentCtx
 	if pCtx == nil {
 		pCtx = context.Background()
@@ -74,14 +74,14 @@ func NewWorker[T any](parentCtx context.Context, p *WorkerConfig[T]) (*Worker[T]
 		return nil, errCtx
 	}
 
-	if p == nil {
+	if cfg == nil {
 		return nil, ErrInvalidWorker
 	}
 
 	w := &Worker[T]{
 		done:      make(chan struct{}),
-		handlerFn: p.HandlerFunc,
-		events:    p.Events,
+		handlerFn: cfg.HandlerFunc,
+		events:    cfg.Events,
 	}
 
 	if w.handlerFn == nil {
@@ -91,7 +91,7 @@ func NewWorker[T any](parentCtx context.Context, p *WorkerConfig[T]) (*Worker[T]
 		w.events = &NoopEvents[T]{}
 	}
 
-	w.ctxFn, w.cancel = newWorkerContext(parentCtx, p.ID)
+	w.ctxFn, w.cancel = newWorkerContext(parentCtx, cfg.ID)
 
 	return w, nil
 }

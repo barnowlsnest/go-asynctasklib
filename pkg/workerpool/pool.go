@@ -22,8 +22,20 @@ type (
 	}
 )
 
-func New[T any](cfg *Config[T]) (*WorkerPool[T], error) {
+func New[T any](parentCtx context.Context, cfg *Config[T]) (*WorkerPool[T], error) {
+	if parentCtx == nil {
+		return nil, ErrNilCfg
+	}
+
+	if parentCtx.Err() != nil {
+		return nil, parentCtx.Err()
+	}
+
 	if cfg == nil {
+		return nil, ErrNilCfg
+	}
+
+	if cfg.Jobs == nil {
 		return nil, ErrNilCfg
 	}
 
@@ -52,13 +64,15 @@ func (pool *WorkerPool[T]) Submit(ctx context.Context, job *T) error {
 		return ErrNilJob
 	}
 
-	if err := pool.cfg.RateLimit.Wait(ctx); err != nil {
+	cfg := pool.cfg
+
+	if err := cfg.RateLimit.Wait(ctx); err != nil {
 		return err
 	}
 
 	go func() {
 		if err := pool.jobs.submit(ctx, job); err != nil {
-			pool.cfg.OnFailedSubmit(err)
+			cfg.OnFailedSubmit(err)
 		}
 	}()
 
