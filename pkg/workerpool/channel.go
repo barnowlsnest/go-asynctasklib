@@ -2,6 +2,7 @@ package workerpool
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -112,7 +113,14 @@ func (ch *Channel[T]) newRetriableSubmit(job *T) (*task.Task, error) {
 		task.WithID(submitJobTaskID),
 		task.WithMaxRetries(cfg.MaxSubmitRetries),
 		task.WithRetryStrategy(retrier),
-		task.WithTaskFn(func(_ *task.Run) error { return ch.send(job) }),
+		task.WithTaskFn(func(r *task.Run) error {
+			err := ch.send(job)
+			if errors.Is(err, ErrDispatcherClosed) {
+				r.Cancel()
+			}
+
+			return err
+		}),
 	)
 
 	def, err := b.Build()
