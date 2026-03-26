@@ -14,17 +14,23 @@ const CtxWorkerID CtxString = "worker"
 type (
 	CtxString string
 
+	Workable[T any] interface {
+		Subscribe(*Worker[T]) error
+		Unsubscribe(*Worker[T])
+		Claims() WorkClaims[T]
+	}
+
 	Worker[T any] struct {
-		events    Events[T]
-		jobs      *Channel[T]
-		onceJoin  sync.Once
-		onceLeave sync.Once
-		done      chan struct{}
-		jobInput  chan *T
-		handlerFn func(context.Context, *T) error
-		ctxFn     func() context.Context
-		cancel    func()
-		started   atomic.Bool
+		mu          sync.Mutex
+		onceStarted sync.Once
+		events      Events[T]
+		jobs        Workable[T]
+		done        chan struct{}
+		jobInput    chan *T
+		handlerFn   func(context.Context, *T) error
+		ctxFn       func() context.Context
+		cancel      func()
+		started     atomic.Bool
 	}
 
 	Events[T any] interface {
@@ -43,14 +49,14 @@ type (
 		HandlerFunc[T]
 	}
 
-	JobClaim[T any] struct {
+	WorkClaim[T any] struct {
 		id    uint64
 		jobCh chan *T
 	}
 
 	HandlerFunc[T any] func(context.Context, *T) error
 
-	JobClaims[T any] chan JobClaim[T]
+	WorkClaims[T any] chan WorkClaim[T]
 )
 
 func newWorkerContext(parentCtx context.Context, id uint64) (ctxFunc func() context.Context, cancelFunc func()) {
@@ -100,33 +106,39 @@ func (w *Worker[T]) ID() uint64 {
 	return w.ctxFn().Value(CtxWorkerID).(uint64)
 }
 
-func (w *Worker[T]) Join(jobs *Channel[T]) {
+func (w *Worker[T]) Join(jobs Workable[T]) error {
 	if jobs == nil {
-		return
+		return ErrNilJob
 	}
 
-	w.onceJoin.Do(func() {
-		if err := jobs.Subscribe(w); err != nil {
-			w.events.SubscribeFailed(err, w.ID())
-			return
-		}
+	if w.started.Load() {
+		return ErrWorkerAlreadyJoined
+	}
 
-		w.events.Subscribed(w.ID())
-		w.jobs = jobs // for the reference when unsubscribing
-		w.jobInput = make(chan *T)
-		w.runLoop(jobs.JobClaims())
-	})
+	if err := jobs.Subscribe(w); err != nil {
+		w.events.SubscribeFailed(err, w.ID())
+		return err
+	}
+
+	w.events.Subscribed(w.ID())
+	w.mu.Lock()
+	w.jobs = jobs
+	w.mu.Unlock()
+
+	w.jobInput = make(chan *T)
+	w.runLoop(jobs.Claims())
+
+	return nil
 }
 
-func (w *Worker[T]) runLoop(ch JobClaims[T]) {
+func (w *Worker[T]) runLoop(ch WorkClaims[T]) {
 	defer close(w.done)
-	var onceStarted sync.Once
 	for {
 		select {
 		case <-w.ctxFn().Done():
 			return
-		case ch <- JobClaim[T]{id: w.ID(), jobCh: w.jobInput}:
-			onceStarted.Do(func() {
+		case ch <- WorkClaim[T]{id: w.ID(), jobCh: w.jobInput}:
+			w.onceStarted.Do(func() {
 				w.started.Store(true)
 				w.events.WorkerStarted(w.ID())
 			})
@@ -136,11 +148,13 @@ func (w *Worker[T]) runLoop(ch JobClaims[T]) {
 				ch = nil
 				continue
 			}
+
 			if err := w.processJob(job); err != nil {
 				w.events.JobFailed(err, job)
-			} else {
-				w.events.JobOk(job)
+				continue
 			}
+
+			w.events.JobOk(job)
 		}
 	}
 }
@@ -160,16 +174,24 @@ func (w *Worker[T]) processJob(job *T) (err error) {
 }
 
 func (w *Worker[T]) Leave() {
+	if !w.started.Load() {
+		return
+	}
+
+	w.leave()
+	close(w.jobInput)
+	w.jobInput = nil
+}
+
+func (w *Worker[T]) leave() {
+	defer w.events.Unsubscribed(w.ID())
+	w.mu.Lock()
+	defer w.mu.Unlock()
 	if w.jobs == nil {
 		return
 	}
 
-	w.onceLeave.Do(func() {
-		w.jobs.Unsubscribe(w)
-		w.events.Unsubscribed(w.ID())
-		close(w.jobInput)
-		w.jobInput = nil
-	})
+	w.jobs.Unsubscribe(w)
 }
 
 func (w *Worker[T]) Shutdown(timeout time.Duration) error {
@@ -178,7 +200,6 @@ func (w *Worker[T]) Shutdown(timeout time.Duration) error {
 	}
 
 	defer w.events.WorkerStopped(w.ID())
-
 	w.Leave()
 	w.cancel()
 	select {

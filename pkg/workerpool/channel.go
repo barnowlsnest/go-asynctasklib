@@ -12,10 +12,10 @@ import (
 )
 
 const (
-	defaultMaxSize          = 4
-	defaultMaxSubmitRetries = 6
+	defaultMaxSize          = 100
+	defaultMaxSubmitRetries = 5
 	defaultBaseRetryDelay   = 500 * time.Millisecond
-	defaultMaxRetryDelay    = 5 * time.Second
+	defaultMaxRetryDelay    = 3 * time.Second
 )
 
 const submitJobTaskID = 1
@@ -26,7 +26,7 @@ type (
 		cfg              *ChannelConfig
 		activeWorkersSet map[uint64]struct{}
 		idleWorkersSet   map[uint64]struct{}
-		claimsCh         JobClaims[T]
+		claimsCh         WorkClaims[T]
 	}
 
 	ChannelConfig struct {
@@ -68,7 +68,7 @@ func NewChannel[T any](cfg *ChannelConfig) *Channel[T] {
 
 	return &Channel[T]{
 		cfg:              cfg,
-		claimsCh:         make(JobClaims[T], cfg.MaxSize),
+		claimsCh:         make(WorkClaims[T], cfg.MaxSize),
 		activeWorkersSet: make(map[uint64]struct{}, cfg.MaxSize),
 		idleWorkersSet:   make(map[uint64]struct{}, cfg.MaxSize),
 	}
@@ -124,7 +124,6 @@ func (ch *Channel[T]) newRetriableSubmit(job *T) (*task.Task, error) {
 	)
 
 	def, err := b.Build()
-
 	if err != nil {
 		return nil, err
 	}
@@ -162,7 +161,7 @@ func (ch *Channel[T]) Unsubscribe(w *Worker[T]) {
 	ch.idleWorkersSet[w.ID()] = struct{}{}
 }
 
-func (ch *Channel[T]) JobClaims() JobClaims[T] {
+func (ch *Channel[T]) Claims() WorkClaims[T] {
 	return ch.claimsCh
 }
 
