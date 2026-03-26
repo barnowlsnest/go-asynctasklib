@@ -16,7 +16,7 @@ type (
 
 	Worker[T any] struct {
 		events    Events[T]
-		jobs      *jobChannel[T]
+		jobs      *Channel[T]
 		onceJoin  sync.Once
 		onceLeave sync.Once
 		done      chan struct{}
@@ -43,14 +43,14 @@ type (
 		HandlerFunc[T]
 	}
 
-	claim[T any] struct {
+	JobClaim[T any] struct {
 		id    uint64
 		jobCh chan *T
 	}
 
 	HandlerFunc[T any] func(context.Context, *T) error
 
-	dispatcher[T any] chan claim[T]
+	JobClaims[T any] chan JobClaim[T]
 )
 
 func newWorkerContext(parentCtx context.Context, id uint64) (ctxFunc func() context.Context, cancelFunc func()) {
@@ -100,13 +100,13 @@ func (w *Worker[T]) ID() uint64 {
 	return w.ctxFn().Value(CtxWorkerID).(uint64)
 }
 
-func (w *Worker[T]) Join(jobs *jobChannel[T]) {
+func (w *Worker[T]) Join(jobs *Channel[T]) {
 	if jobs == nil {
 		return
 	}
 
 	w.onceJoin.Do(func() {
-		if err := jobs.subscribe(w); err != nil {
+		if err := jobs.Subscribe(w); err != nil {
 			w.events.SubscribeFailed(err, w.ID())
 			return
 		}
@@ -114,18 +114,18 @@ func (w *Worker[T]) Join(jobs *jobChannel[T]) {
 		w.events.Subscribed(w.ID())
 		w.jobs = jobs // for the reference when unsubscribing
 		w.jobInput = make(chan *T)
-		w.runLoop(jobs.jobs())
+		w.runLoop(jobs.JobClaims())
 	})
 }
 
-func (w *Worker[T]) runLoop(dispatcher dispatcher[T]) {
+func (w *Worker[T]) runLoop(ch JobClaims[T]) {
 	defer close(w.done)
 	var onceStarted sync.Once
 	for {
 		select {
 		case <-w.ctxFn().Done():
 			return
-		case dispatcher <- claim[T]{id: w.ID(), jobCh: w.jobInput}:
+		case ch <- JobClaim[T]{id: w.ID(), jobCh: w.jobInput}:
 			onceStarted.Do(func() {
 				w.started.Store(true)
 				w.events.WorkerStarted(w.ID())
@@ -133,7 +133,7 @@ func (w *Worker[T]) runLoop(dispatcher dispatcher[T]) {
 			continue
 		case job, ok := <-w.jobInput:
 			if !ok {
-				dispatcher = nil
+				ch = nil
 				continue
 			}
 			if err := w.processJob(job); err != nil {
@@ -159,13 +159,13 @@ func (w *Worker[T]) processJob(job *T) (err error) {
 	return w.handlerFn(w.ctxFn(), job)
 }
 
-func (w *Worker[T]) LeaveJobChannel() {
+func (w *Worker[T]) Leave() {
 	if w.jobs == nil {
 		return
 	}
 
 	w.onceLeave.Do(func() {
-		w.jobs.unsubscribe(w)
+		w.jobs.Unsubscribe(w)
 		w.events.Unsubscribed(w.ID())
 		close(w.jobInput)
 		w.jobInput = nil
@@ -178,7 +178,8 @@ func (w *Worker[T]) Shutdown(timeout time.Duration) error {
 	}
 
 	defer w.events.WorkerStopped(w.ID())
-	w.LeaveJobChannel()
+
+	w.Leave()
 	w.cancel()
 	select {
 	case <-w.done:

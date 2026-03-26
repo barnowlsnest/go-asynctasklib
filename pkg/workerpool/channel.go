@@ -20,25 +20,32 @@ const (
 const submitJobTaskID = 1
 
 type (
-	jobChannel[T any] struct {
+	Channel[T any] struct {
 		mu               sync.RWMutex
-		cfg              *JobChannelConfig
+		cfg              *ChannelConfig
 		activeWorkersSet map[uint64]struct{}
 		idleWorkersSet   map[uint64]struct{}
-		dispatcher       dispatcher[T]
+		claimsCh         JobClaims[T]
 	}
 
-	JobChannelConfig struct {
+	ChannelConfig struct {
 		MaxSize          int
 		MaxSubmitRetries int
 		BaseRetryDelay   time.Duration
 		MaxRetryDelay    time.Duration
 	}
+
+	Submission struct {
+		mu     sync.Mutex
+		err    error
+		doneCh chan struct{}
+		task   *task.Task
+	}
 )
 
-func newJobChannel[T any](cfg *JobChannelConfig) *jobChannel[T] {
+func NewChannel[T any](cfg *ChannelConfig) *Channel[T] {
 	if cfg == nil {
-		cfg = &JobChannelConfig{
+		cfg = &ChannelConfig{
 			MaxSize:          defaultMaxSize,
 			MaxSubmitRetries: defaultMaxSubmitRetries,
 			BaseRetryDelay:   defaultBaseRetryDelay,
@@ -58,28 +65,28 @@ func newJobChannel[T any](cfg *JobChannelConfig) *jobChannel[T] {
 		cfg.MaxRetryDelay = defaultMaxRetryDelay
 	}
 
-	return &jobChannel[T]{
+	return &Channel[T]{
 		cfg:              cfg,
-		dispatcher:       make(dispatcher[T], cfg.MaxSize),
+		claimsCh:         make(JobClaims[T], cfg.MaxSize),
 		activeWorkersSet: make(map[uint64]struct{}, cfg.MaxSize),
 		idleWorkersSet:   make(map[uint64]struct{}, cfg.MaxSize),
 	}
 }
 
-func (l *jobChannel[T]) submitJob(job *T) error {
-	c, ok := <-l.dispatcher
+func (ch *Channel[T]) send(job *T) error {
+	c, ok := <-ch.claimsCh
 	if !ok {
 		return ErrDispatcherClosed
 	}
 
-	l.mu.RLock()
-	defer l.mu.RUnlock()
+	ch.mu.RLock()
+	defer ch.mu.RUnlock()
 
-	if len(l.activeWorkersSet) == 0 {
+	if len(ch.activeWorkersSet) == 0 {
 		return ErrNoActiveWorkers
 	}
 
-	_, exists := l.activeWorkersSet[c.id]
+	_, exists := ch.activeWorkersSet[c.id]
 	if !exists {
 		return fmt.Errorf("worker %d is not active", c.id)
 	}
@@ -89,12 +96,12 @@ func (l *jobChannel[T]) submitJob(job *T) error {
 	return nil
 }
 
-func (l *jobChannel[T]) newRetriableSubmit(job *T) (*task.Task, error) {
+func (ch *Channel[T]) newRetriableSubmit(job *T) (*task.Task, error) {
 	if job == nil {
 		return nil, ErrNilJob
 	}
 
-	cfg := l.cfg
+	cfg := ch.cfg
 	retrier := retry.NewExponentialBackoff(
 		retry.WithBaseDelay(cfg.BaseRetryDelay),
 		retry.WithMaxDelay(cfg.MaxRetryDelay),
@@ -105,7 +112,7 @@ func (l *jobChannel[T]) newRetriableSubmit(job *T) (*task.Task, error) {
 		task.WithID(submitJobTaskID),
 		task.WithMaxRetries(cfg.MaxSubmitRetries),
 		task.WithRetryStrategy(retrier),
-		task.WithTaskFn(func(_ *task.Run) error { return l.submitJob(job) }),
+		task.WithTaskFn(func(_ *task.Run) error { return ch.send(job) }),
 	)
 
 	def, err := b.Build()
@@ -117,45 +124,83 @@ func (l *jobChannel[T]) newRetriableSubmit(job *T) (*task.Task, error) {
 	return task.New(*def), nil
 }
 
-func (l *jobChannel[T]) subscribe(w *Worker[T]) error {
+func (ch *Channel[T]) Subscribe(w *Worker[T]) error {
 	if w == nil {
 		return ErrInvalidWorker
 	}
 
-	l.mu.Lock()
-	defer l.mu.Unlock()
+	ch.mu.Lock()
+	defer ch.mu.Unlock()
 
-	if len(l.activeWorkersSet) >= l.cfg.MaxSize {
+	if len(ch.activeWorkersSet) >= ch.cfg.MaxSize {
 		return ErrMaxPoolSize
 	}
 
-	l.activeWorkersSet[w.ID()] = struct{}{}
-	delete(l.idleWorkersSet, w.ID())
+	ch.activeWorkersSet[w.ID()] = struct{}{}
+	delete(ch.idleWorkersSet, w.ID())
 
 	return nil
 }
 
-func (l *jobChannel[T]) unsubscribe(w *Worker[T]) {
+func (ch *Channel[T]) Unsubscribe(w *Worker[T]) {
 	if w == nil {
 		return
 	}
 
-	l.mu.Lock()
-	defer l.mu.Unlock()
+	ch.mu.Lock()
+	defer ch.mu.Unlock()
 
-	delete(l.activeWorkersSet, w.ID())
-	l.idleWorkersSet[w.ID()] = struct{}{}
+	delete(ch.activeWorkersSet, w.ID())
+	ch.idleWorkersSet[w.ID()] = struct{}{}
 }
 
-func (l *jobChannel[T]) jobs() dispatcher[T] {
-	return l.dispatcher
+func (ch *Channel[T]) JobClaims() JobClaims[T] {
+	return ch.claimsCh
 }
 
-func (l *jobChannel[T]) submit(ctx context.Context, job *T) error {
-	submit, err := l.newRetriableSubmit(job)
-	if err != nil {
-		return err
+func (ch *Channel[T]) Submit(ctx context.Context, job *T) *Submission {
+	var s Submission
+	s.task, s.err = ch.newRetriableSubmit(job)
+	if s.err != nil {
+		s.doneCh = make(chan struct{})
+		close(s.doneCh)
+		return &s
 	}
 
-	return submit.GoRetry(ctx)
+	s.doneCh = make(chan struct{})
+	go func() {
+		defer close(s.doneCh)
+		if err := s.task.GoRetry(ctx); err != nil {
+			s.setErr(err)
+		}
+	}()
+
+	return &s
+}
+
+func (s *Submission) Done() <-chan struct{} {
+	return s.doneCh
+}
+
+func (s *Submission) setErr(err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.err = err
+}
+
+func (s *Submission) Err() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.err
+}
+
+func (s *Submission) Cancel() {
+	switch {
+	case s == nil:
+		return
+	case s.task == nil:
+		return
+	default:
+		s.task.Cancel()
+	}
 }

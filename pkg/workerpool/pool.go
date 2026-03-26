@@ -2,6 +2,7 @@ package workerpool
 
 import (
 	"context"
+	"time"
 
 	"golang.org/x/time/rate"
 )
@@ -9,12 +10,12 @@ import (
 type (
 	WorkerPool[T any] struct {
 		workers []*Worker[T]
-		jobs    *jobChannel[T]
+		jobs    *Channel[T]
 		cfg     *Config[T]
 	}
 
 	Config[T any] struct {
-		Jobs           *JobChannelConfig
+		Jobs           *ChannelConfig
 		RateLimit      *rate.Limiter
 		Events         Events[T]
 		Handler        HandlerFunc[T]
@@ -23,19 +24,14 @@ type (
 )
 
 func New[T any](parentCtx context.Context, cfg *Config[T]) (*WorkerPool[T], error) {
-	if parentCtx == nil {
+	switch {
+	case parentCtx == nil:
 		return nil, ErrNilCfg
-	}
-
-	if parentCtx.Err() != nil {
+	case parentCtx.Err() != nil:
 		return nil, parentCtx.Err()
-	}
-
-	if cfg == nil {
+	case cfg == nil:
 		return nil, ErrNilCfg
-	}
-
-	if cfg.Jobs == nil {
+	case cfg.Jobs == nil:
 		return nil, ErrNilCfg
 	}
 
@@ -48,33 +44,45 @@ func New[T any](parentCtx context.Context, cfg *Config[T]) (*WorkerPool[T], erro
 		cfg.OnFailedSubmit = func(err error) {}
 	}
 
+	if cfg.RateLimit == nil {
+		cfg.RateLimit = rate.NewLimiter(rate.Inf, 0)
+	}
+
 	return &WorkerPool[T]{
 		workers: make([]*Worker[T], 0, poolSize),
-		jobs:    newJobChannel[T](cfg.Jobs),
+		jobs:    NewChannel[T](cfg.Jobs),
 		cfg:     cfg,
 	}, nil
 }
 
-func (pool *WorkerPool[T]) Submit(ctx context.Context, job *T) error {
-	if ctx == nil {
+func (wp *WorkerPool[T]) Submit(ctx context.Context, job *T) error {
+	switch {
+	case ctx == nil:
 		return nil
-	}
-
-	if job == nil {
+	case ctx.Err() != nil:
+		return ctx.Err()
+	case job == nil:
 		return ErrNilJob
 	}
 
-	cfg := pool.cfg
-
-	if err := cfg.RateLimit.Wait(ctx); err != nil {
+	rl := wp.cfg.RateLimit
+	if err := rl.Wait(ctx); err != nil {
 		return err
 	}
 
+	errCh := make(chan error)
 	go func() {
-		if err := pool.jobs.submit(ctx, job); err != nil {
-			cfg.OnFailedSubmit(err)
+		defer close(errCh)
+		s := wp.jobs.Submit(ctx, job)
+		select {
+		case <-s.Done():
+			errCh <- s.Err()
+		case <-time.After(time.Second):
+			s.Cancel()
+			errCh <- ErrSubmitTimeout
 		}
 	}()
 
-	return nil
+	return <-errCh
+
 }
