@@ -120,11 +120,11 @@ func (w *Worker[T]) Join(jobs Workable[T]) error {
 		return err
 	}
 
-	w.events.Subscribed(w.ID())
 	w.mu.Lock()
 	w.jobs = jobs
 	w.mu.Unlock()
 
+	w.events.Subscribed(w.ID())
 	w.jobInput = make(chan *T)
 	w.runLoop(jobs.Claims())
 
@@ -174,13 +174,9 @@ func (w *Worker[T]) processJob(job *T) (err error) {
 }
 
 func (w *Worker[T]) Leave() {
-	if !w.started.Load() {
-		return
-	}
-
+	defer func() { w.jobInput = nil }()
 	w.leave()
 	close(w.jobInput)
-	w.jobInput = nil
 }
 
 func (w *Worker[T]) leave() {
