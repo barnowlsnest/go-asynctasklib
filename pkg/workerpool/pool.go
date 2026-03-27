@@ -58,7 +58,7 @@ func New[T any](parentCtx context.Context, cfg *Config[T]) (*WorkerPool[T], erro
 func (wp *WorkerPool[T]) Submit(ctx context.Context, job *T) error {
 	switch {
 	case ctx == nil:
-		return nil
+		return ErrNilCtx
 	case ctx.Err() != nil:
 		return ctx.Err()
 	case job == nil:
@@ -84,5 +84,4 @@ func (wp *WorkerPool[T]) Submit(ctx context.Context, job *T) error {
 	}()
 
 	return <-errCh
-
 }

@@ -15,4 +15,5 @@ var (
 	ErrNoActiveWorkers     = errors.New("err no active workers")
 	ErrNilCfg              = errors.New("err nil worker pool config")
 	ErrWorkerAlreadyJoined = errors.New("worker already joined")
+	ErrNilCtx              = errors.New("err nil context")
 )

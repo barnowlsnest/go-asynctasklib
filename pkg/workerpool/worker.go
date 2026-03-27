@@ -97,7 +97,7 @@ func NewWorker[T any](parentCtx context.Context, cfg *WorkerConfig[T]) (*Worker[
 		w.events = &NoopEvents[T]{}
 	}
 
-	w.ctxFn, w.cancel = newWorkerContext(parentCtx, cfg.ID)
+	w.ctxFn, w.cancel = newWorkerContext(pCtx, cfg.ID)
 
 	return w, nil
 }
@@ -146,6 +146,7 @@ func (w *Worker[T]) runLoop(ch WorkClaims[T]) {
 		case job, ok := <-w.jobInput:
 			if !ok {
 				ch = nil
+				w.jobInput = nil
 				continue
 			}
 
@@ -166,7 +167,7 @@ func (w *Worker[T]) processJob(job *T) (err error) {
 		}
 	}()
 
-	if err = w.ctxFn().Err(); err != nil {
+	if err := w.ctxFn().Err(); err != nil {
 		return err
 	}
 
@@ -175,7 +176,6 @@ func (w *Worker[T]) processJob(job *T) (err error) {
 
 func (w *Worker[T]) Leave() {
 	defer func() {
-		w.jobInput = nil
 		w.events.Unsubscribed(w.ID())
 	}()
 	w.leave()

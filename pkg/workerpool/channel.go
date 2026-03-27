@@ -66,6 +66,10 @@ func NewChannel[T any](cfg *ChannelConfig) *Channel[T] {
 		cfg.MaxRetryDelay = defaultMaxRetryDelay
 	}
 
+	if cfg.MaxSubmitRetries <= 0 {
+		cfg.MaxSubmitRetries = defaultMaxSubmitRetries
+	}
+
 	return &Channel[T]{
 		cfg:              cfg,
 		claimsCh:         make(WorkClaims[T], cfg.MaxSize),
