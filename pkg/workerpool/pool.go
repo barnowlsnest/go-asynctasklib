@@ -7,6 +7,8 @@ import (
 	"golang.org/x/time/rate"
 )
 
+const defaultSubmitTimeout = 5 * time.Second
+
 type (
 	WorkerPool[T any] struct {
 		workers []*Worker[T]
@@ -15,6 +17,7 @@ type (
 	}
 
 	Config[T any] struct {
+		SubmitTimeout  time.Duration
 		Jobs           *ChannelConfig
 		RateLimit      *rate.Limiter
 		Events         Events[T]
@@ -48,6 +51,10 @@ func New[T any](parentCtx context.Context, cfg *Config[T]) (*WorkerPool[T], erro
 		cfg.RateLimit = rate.NewLimiter(rate.Inf, 0)
 	}
 
+	if cfg.SubmitTimeout <= 0 {
+		cfg.SubmitTimeout = defaultSubmitTimeout
+	}
+
 	return &WorkerPool[T]{
 		workers: make([]*Worker[T], 0, poolSize),
 		jobs:    NewChannel[T](cfg.Jobs),
@@ -77,7 +84,7 @@ func (wp *WorkerPool[T]) Submit(ctx context.Context, job *T) error {
 		select {
 		case <-s.Done():
 			errCh <- s.Err()
-		case <-time.After(time.Second):
+		case <-time.After(wp.cfg.SubmitTimeout):
 			s.Cancel()
 			errCh <- ErrSubmitTimeout
 		}
