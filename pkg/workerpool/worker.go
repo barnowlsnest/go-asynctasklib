@@ -174,13 +174,15 @@ func (w *Worker[T]) processJob(job *T) (err error) {
 }
 
 func (w *Worker[T]) Leave() {
-	defer func() { w.jobInput = nil }()
+	defer func() {
+		w.jobInput = nil
+		w.events.Unsubscribed(w.ID())
+	}()
 	w.leave()
 	close(w.jobInput)
 }
 
 func (w *Worker[T]) leave() {
-	defer w.events.Unsubscribed(w.ID())
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.jobs == nil {
