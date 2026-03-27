@@ -179,8 +179,8 @@ func (s *PoolTestSuite) makePool() *WorkerPool[int] {
 		Jobs: &ChannelConfig{
 			MaxSize:          2,
 			MaxSubmitRetries: 3,
-			BaseRetryDelay:   10 * time.Millisecond,
-			MaxRetryDelay:    50 * time.Millisecond,
+			BaseRetryDelay:   100 * time.Millisecond,
+			MaxRetryDelay:    time.Second,
 		},
 	}
 	wp, err := New[int](context.Background(), cfg)
