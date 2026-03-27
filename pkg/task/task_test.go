@@ -196,11 +196,10 @@ func TestTask_Go(t *testing.T) {
 
 	t.Run("provides Run context helpers", func(t *testing.T) {
 		var (
-			gotID       uint64
-			gotName     string
-			gotContext  context.Context
-			gotCancel   context.CancelFunc
-			gotCallback func()
+			gotID      uint64
+			gotName    string
+			gotContext context.Context
+			gotCancel  context.CancelFunc
 		)
 
 		task := New(Definition{
@@ -211,7 +210,6 @@ func TestTask_Go(t *testing.T) {
 				gotName = r.Name()
 				gotContext = r.Context()
 				gotCancel = r.Cancel
-				gotCallback = r.Callback
 				return nil
 			},
 		})
@@ -225,7 +223,6 @@ func TestTask_Go(t *testing.T) {
 		assert.Equal(t, "run-helpers-task", gotName)
 		assert.NotNil(t, gotContext)
 		assert.NotNil(t, gotCancel)
-		assert.NotNil(t, gotCallback)
 	})
 }
 
@@ -444,37 +441,6 @@ func TestTask_Hooks(t *testing.T) {
 		defer mu.Unlock()
 
 		assert.True(t, failedCalled, "expected failed hook to be called")
-	})
-
-	t.Run("callback hook is invoked", func(t *testing.T) {
-		callbackCalled := false
-		var mu sync.Mutex
-
-		hooks := NewStateHooks(
-			FromTaskFn(func(id uint64, when time.Time) {
-				mu.Lock()
-				defer mu.Unlock()
-				callbackCalled = true
-			}),
-		)
-
-		task := New(Definition{
-			ID:    402,
-			Hooks: hooks,
-			TaskFn: func(r *Run) error {
-				r.Callback()
-				return nil
-			},
-		})
-
-		ctx := context.Background()
-		_ = task.Go(ctx)
-		task.Await()
-
-		mu.Lock()
-		defer mu.Unlock()
-
-		assert.True(t, callbackCalled, "expected callback hook to be called")
 	})
 }
 

@@ -20,7 +20,6 @@ func TestNewStateHooks(t *testing.T) {
 			hooks.onCreated(1, time.Now())
 			hooks.onStarted(1, time.Now())
 			hooks.onDone(1, time.Now())
-			hooks.onTaskFn(1, time.Now())
 			hooks.onFailed(1, time.Now(), nil)
 			hooks.onPending(1, time.Now(), 1)
 			hooks.onCanceled(1, time.Now())
@@ -167,40 +166,6 @@ func TestWhenDone(t *testing.T) {
 
 		assert.NotPanics(t, func() {
 			hooks.onDone(1, time.Now())
-		})
-	})
-}
-
-func TestFromTaskFn(t *testing.T) {
-	t.Run("sets task function hook", func(t *testing.T) {
-		var (
-			gotID   uint64
-			gotWhen time.Time
-		)
-
-		hooks := NewStateHooks(
-			FromTaskFn(func(id uint64, when time.Time) {
-				gotID = id
-				gotWhen = when
-			}),
-		)
-
-		testTime := time.Now().UTC()
-		hooks.onTaskFn(101, testTime)
-
-		assert.Equal(t, uint64(101), gotID)
-		assert.Equal(t, testTime, gotWhen)
-	})
-
-	t.Run("catches panic in hook", func(t *testing.T) {
-		hooks := NewStateHooks(
-			FromTaskFn(func(id uint64, when time.Time) {
-				panic("test panic in taskfn hook")
-			}),
-		)
-
-		assert.NotPanics(t, func() {
-			hooks.onTaskFn(1, time.Now())
 		})
 	})
 }
@@ -408,105 +373,6 @@ func TestStateHooks_ConcurrentAccess(t *testing.T) {
 		}
 
 		wg.Wait()
-	})
-
-	t.Run("multiple hooks called concurrently", func(t *testing.T) {
-		var (
-			createdCount  int
-			startedCount  int
-			doneCount     int
-			failedCount   int
-			pendingCount  int
-			canceledCount int
-			taskFnCount   int
-			mu            sync.Mutex
-		)
-
-		hooks := NewStateHooks(
-			WhenCreated(func(id uint64, when time.Time) {
-				mu.Lock()
-				defer mu.Unlock()
-				createdCount++
-			}),
-			WhenStarted(func(id uint64, when time.Time) {
-				mu.Lock()
-				defer mu.Unlock()
-				startedCount++
-			}),
-			WhenDone(func(id uint64, when time.Time) {
-				mu.Lock()
-				defer mu.Unlock()
-				doneCount++
-			}),
-			WhenFailed(func(id uint64, when time.Time, err error) {
-				mu.Lock()
-				defer mu.Unlock()
-				failedCount++
-			}),
-			WhenPending(func(id uint64, when time.Time, attempt int) {
-				mu.Lock()
-				defer mu.Unlock()
-				pendingCount++
-			}),
-			WhenCanceled(func(id uint64, when time.Time) {
-				mu.Lock()
-				defer mu.Unlock()
-				canceledCount++
-			}),
-			FromTaskFn(func(id uint64, when time.Time) {
-				mu.Lock()
-				defer mu.Unlock()
-				taskFnCount++
-			}),
-		)
-
-		var wg sync.WaitGroup
-		iterations := 20
-
-		for i := 0; i < iterations; i++ {
-			wg.Add(7)
-			go func() {
-				defer wg.Done()
-				hooks.onCreated(1, time.Now())
-			}()
-			go func() {
-				defer wg.Done()
-				hooks.onStarted(1, time.Now())
-			}()
-			go func() {
-				defer wg.Done()
-				hooks.onDone(1, time.Now())
-			}()
-			go func() {
-				defer wg.Done()
-				hooks.onFailed(1, time.Now(), nil)
-			}()
-			go func() {
-				defer wg.Done()
-				hooks.onPending(1, time.Now(), 1)
-			}()
-			go func() {
-				defer wg.Done()
-				hooks.onCanceled(1, time.Now())
-			}()
-			go func() {
-				defer wg.Done()
-				hooks.onTaskFn(1, time.Now())
-			}()
-		}
-
-		wg.Wait()
-
-		mu.Lock()
-		defer mu.Unlock()
-
-		assert.Equal(t, iterations, createdCount)
-		assert.Equal(t, iterations, startedCount)
-		assert.Equal(t, iterations, doneCount)
-		assert.Equal(t, iterations, failedCount)
-		assert.Equal(t, iterations, pendingCount)
-		assert.Equal(t, iterations, canceledCount)
-		assert.Equal(t, iterations, taskFnCount)
 	})
 }
 

@@ -17,11 +17,10 @@ type (
 	RunFunc func(*Run) error
 
 	Run struct {
-		ID       func() uint64
-		Name     func() string
-		Context  func() context.Context
-		Cancel   context.CancelFunc
-		Callback func()
+		ID      func() uint64
+		Name    func() string
+		Context func() context.Context
+		Cancel  context.CancelFunc
 	}
 
 	Definition struct {
@@ -134,11 +133,10 @@ func (t *Task) delegateFn(ctx context.Context) <-chan error {
 			return
 		default:
 			run := &Run{
-				Cancel:   t.cancel,
-				ID:       func() uint64 { return t.id },
-				Name:     func() string { return t.name },
-				Context:  func() context.Context { return ctx },
-				Callback: func() { t.hooks.onTaskFn(t.id, time.Now().UTC()) },
+				Cancel:  t.cancel,
+				ID:      func() uint64 { return t.id },
+				Name:    func() string { return t.name },
+				Context: func() context.Context { return ctx },
 			}
 			if err := t.fn(run); err != nil {
 				errCh <- err
