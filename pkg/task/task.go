@@ -220,9 +220,10 @@ func (t *Task) GoRetry(ctx context.Context) error {
 		return ErrMaxRetriesNotSet
 	}
 
+	var rootCauseErr error
 attempt:
 	if int(t.attempts.Load()) >= t.maxRetries {
-		return ErrMaxRetriesExceeded
+		return errors.Join(ErrMaxRetriesExceeded, rootCauseErr)
 	}
 	if err := t.Go(ctx); err != nil {
 		return err
@@ -231,6 +232,7 @@ attempt:
 	t.Await()
 
 	if t.IsFailed() {
+		rootCauseErr = t.Err()
 		retryAttempt := int(t.attempts.Load())
 		t.attempts.Add(1)
 

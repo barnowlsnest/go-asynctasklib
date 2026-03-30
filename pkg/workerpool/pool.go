@@ -2,93 +2,109 @@ package workerpool
 
 import (
 	"context"
-	"time"
+	"errors"
 
 	"golang.org/x/time/rate"
 )
 
-const defaultSubmitTimeout = 5 * time.Second
-
 type (
-	WorkerPool[T any] struct {
-		workers []*Worker[T]
-		jobs    *Channel[T]
-		cfg     *Config[T]
-	}
+	ParentContextFunc func() context.Context
 
-	Config[T any] struct {
-		SubmitTimeout  time.Duration
-		Jobs           *ChannelConfig
-		RateLimit      *rate.Limiter
-		Events         Events[T]
-		Handler        HandlerFunc[T]
-		OnFailedSubmit func(error)
+	WorkerFactory[T any] func(ctx context.Context, id uint64) (*Worker[T], error)
+
+	WorkerPool[T any] struct {
+		ids           uint64
+		workers       map[uint64]*Worker[T]
+		jobs          *Channel[T]
+		rateLimit     *rate.Limiter
+		parentContext ParentContextFunc
+		workerFactory WorkerFactory[T]
 	}
 )
 
-func New[T any](parentCtx context.Context, cfg *Config[T]) (*WorkerPool[T], error) {
+func New[T any](
+	parentCtx context.Context, rateLimit *rate.Limiter, jobs *Channel[T], workerFactory WorkerFactory[T],
+) (*WorkerPool[T], error) {
 	switch {
 	case parentCtx == nil:
-		return nil, ErrNilCfg
+		return nil, ErrNilCtx
 	case parentCtx.Err() != nil:
 		return nil, parentCtx.Err()
-	case cfg == nil:
-		return nil, ErrNilCfg
-	case cfg.Jobs == nil:
-		return nil, ErrNilCfg
+	case jobs == nil:
+		return nil, errors.Join(ErrCfg, errors.New("nil job channel"))
+	case workerFactory == nil:
+		return nil, errors.Join(ErrCfg, errors.New("nil worker factory"))
 	}
 
-	poolSize := cfg.Jobs.MaxSize
-	if poolSize <= 0 {
-		poolSize = defaultMaxSize
+	if rateLimit == nil {
+		rateLimit = rate.NewLimiter(rate.Inf, 0)
 	}
 
-	if cfg.OnFailedSubmit == nil {
-		cfg.OnFailedSubmit = func(err error) {}
+	p := WorkerPool[T]{
+		rateLimit: rateLimit,
+		jobs:      jobs,
+		workers:   make(map[uint64]*Worker[T], jobs.MaxSize()),
+		parentContext: func() context.Context {
+			return parentCtx
+		},
 	}
 
-	if cfg.RateLimit == nil {
-		cfg.RateLimit = rate.NewLimiter(rate.Inf, 0)
+	if err := p.addWorker(); err != nil {
+		return nil, err
 	}
 
-	if cfg.SubmitTimeout <= 0 {
-		cfg.SubmitTimeout = defaultSubmitTimeout
-	}
-
-	return &WorkerPool[T]{
-		workers: make([]*Worker[T], 0, poolSize),
-		jobs:    NewChannel[T](cfg.Jobs),
-		cfg:     cfg,
-	}, nil
+	return &p, nil
 }
 
-func (wp *WorkerPool[T]) Submit(ctx context.Context, job *T) error {
+func (wp *WorkerPool[T]) Submit(ctx context.Context, job *T) (*Submission, error) {
 	switch {
 	case ctx == nil:
-		return ErrNilCtx
+		return nil, ErrNilCtx
 	case ctx.Err() != nil:
-		return ctx.Err()
+		return nil, ctx.Err()
 	case job == nil:
-		return ErrNilJob
+		return nil, ErrNilJob
 	}
 
-	rl := wp.cfg.RateLimit
-	if err := rl.Wait(ctx); err != nil {
+	if err := wp.rateLimit.Wait(ctx); err != nil {
+		return nil, err
+	}
+
+	_ = wp.scale(1)
+
+	return wp.jobs.Submit(ctx, job), nil
+}
+
+func (wp *WorkerPool[T]) scale(n int) error {
+	switch {
+	case n > 0:
+		return wp.up(n)
+	case n < 0:
+
+		return wp.down(n)
+	default:
+		return nil
+	}
+}
+
+func (wp *WorkerPool[T]) addWorker() error {
+	cpID := wp.ids
+	nID := cpID + 1
+	w, err := wp.workerFactory(wp.parentContext(), nID)
+	if err != nil {
 		return err
 	}
 
-	errCh := make(chan error)
-	go func() {
-		defer close(errCh)
-		s := wp.jobs.Submit(ctx, job)
-		select {
-		case <-s.Done():
-			errCh <- s.Err()
-		case <-time.After(wp.cfg.SubmitTimeout):
-			s.Cancel()
-			errCh <- ErrSubmitTimeout
-		}
-	}()
+	wp.ids = w.ID()
+	wp.workers[w.ID()] = w
 
-	return <-errCh
+	return nil
+}
+
+func (wp *WorkerPool[T]) up(n int) error {
+	return nil
+}
+
+func (wp *WorkerPool[T]) down(n int) error {
+	return nil
 }
