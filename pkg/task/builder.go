@@ -52,6 +52,12 @@ func WithMaxRetries(retries int) OptionFunc {
 	}
 }
 
+func WithMaxDuration(maxDuration time.Duration) OptionFunc {
+	return func(d *Definition) {
+		d.MaxDuration = maxDuration
+	}
+}
+
 func WithDelay(delay time.Duration) OptionFunc {
 	return func(d *Definition) {
 		d.Delay = delay
