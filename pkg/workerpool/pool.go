@@ -13,24 +13,28 @@ type (
 	WorkerFactory[T any] func(ctx context.Context, id uint64) (*Worker[T], error)
 
 	WorkerPool[T any] struct {
-		ids           uint64
 		workers       map[uint64]*Worker[T]
-		jobs          *Channel[T]
+		submitter     Submitter[T]
 		rateLimit     *rate.Limiter
 		parentContext ParentContextFunc
 		workerFactory WorkerFactory[T]
 	}
+
+	Submitter[T any] interface {
+		Submit(ctx context.Context, job *T) (*Submission, error)
+		MaxSize() int
+	}
 )
 
 func New[T any](
-	parentCtx context.Context, rateLimit *rate.Limiter, jobs *Channel[T], workerFactory WorkerFactory[T],
+	parentCtx context.Context, rateLimit *rate.Limiter, submitter Submitter[T], workerFactory WorkerFactory[T],
 ) (*WorkerPool[T], error) {
 	switch {
 	case parentCtx == nil:
 		return nil, ErrNilCtx
 	case parentCtx.Err() != nil:
 		return nil, parentCtx.Err()
-	case jobs == nil:
+	case submitter == nil:
 		return nil, errors.Join(ErrCfg, errors.New("nil job channel"))
 	case workerFactory == nil:
 		return nil, errors.Join(ErrCfg, errors.New("nil worker factory"))
@@ -42,15 +46,20 @@ func New[T any](
 
 	p := WorkerPool[T]{
 		rateLimit: rateLimit,
-		jobs:      jobs,
-		workers:   make(map[uint64]*Worker[T], jobs.MaxSize()),
+		submitter: submitter,
+		workers:   make(map[uint64]*Worker[T], submitter.MaxSize()),
 		parentContext: func() context.Context {
 			return parentCtx
 		},
 	}
 
-	if err := p.addWorker(); err != nil {
-		return nil, err
+	for i := range submitter.MaxSize() {
+		w, err := p.newWorker(uint64(i + 1))
+		if err != nil {
+			return nil, err
+		}
+
+		p.addWorker(w)
 	}
 
 	return &p, nil
@@ -70,41 +79,22 @@ func (wp *WorkerPool[T]) Submit(ctx context.Context, job *T) (*Submission, error
 		return nil, err
 	}
 
-	_ = wp.scale(1)
-
-	return wp.jobs.Submit(ctx, job), nil
+	return wp.submitter.Submit(ctx, job)
 }
 
-func (wp *WorkerPool[T]) scale(n int) error {
-	switch {
-	case n > 0:
-		return wp.up(n)
-	case n < 0:
-
-		return wp.down(n)
-	default:
-		return nil
-	}
-}
-
-func (wp *WorkerPool[T]) addWorker() error {
-	cpID := wp.ids
-	nID := cpID + 1
-	w, err := wp.workerFactory(wp.parentContext(), nID)
+func (wp *WorkerPool[T]) newWorker(id uint64) (*Worker[T], error) {
+	w, err := wp.workerFactory(wp.parentContext(), id)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	wp.ids = w.ID()
+	return w, nil
+}
+
+func (wp *WorkerPool[T]) addWorker(w *Worker[T]) {
+	if w == nil {
+		return
+	}
+
 	wp.workers[w.ID()] = w
-
-	return nil
-}
-
-func (wp *WorkerPool[T]) up(n int) error {
-	return nil
-}
-
-func (wp *WorkerPool[T]) down(n int) error {
-	return nil
 }
