@@ -95,14 +95,12 @@ func (t *Task) run(ctx context.Context) error {
 		t.canceled()
 		return errors.Join(ErrCancelledTask, ctx.Err())
 	case <-time.After(t.timeout):
-		select {
-		case <-ctx.Done():
+		if err := ctx.Err(); err != nil {
 			t.canceled()
 			return errors.Join(ErrCancelledTask, ctx.Err())
-		default:
-			t.failed(ErrTaskTimeout)
-			return ErrTaskTimeout
 		}
+		t.failed(ErrTaskTimeout)
+		return errors.Join(ErrTaskTimeout, t.Err())
 	case err := <-t.delegateFn(ctx):
 		switch {
 		case errors.Is(err, context.Canceled):
