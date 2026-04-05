@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -33,15 +32,16 @@ type (
 
 	Worker[T any] struct {
 		io.Closer
-		channelName string
-		running     atomic.Bool
-		onceStarted sync.Once
-		events      Events[T]
-		done        chan struct{}
-		input       chan *T
-		handlerFn   func(context.Context, *T) error
-		ctxFn       func() context.Context
-		cancel      func()
+		id              uint64
+		channelName     string
+		running         atomic.Bool
+		startedNotified atomic.Bool
+		events          Events[T]
+		done            chan struct{}
+		input           chan *T
+		handlerFn       func(context.Context, *T) error
+		ctxFn           func() context.Context
+		cancel          func()
 	}
 
 	Events[T any] interface {
@@ -84,42 +84,33 @@ func newWorkerContext(parentCtx context.Context, id uint64) (ctxFunc func() cont
 	return ctxFunc, cancelFunc
 }
 
-func NewWorker[T any](parentCtx context.Context, cfg *WorkerConfig[T]) (*Worker[T], error) {
-	pCtx := parentCtx
-	if pCtx == nil {
-		return nil, ErrNilCtx
-	}
-
-	if errCtx := pCtx.Err(); errCtx != nil {
-		return nil, errCtx
-	}
-
+// NewWorker constructs a Worker. The worker is not bound to any context until
+// Join is called; a fresh per-Join context is created inside Join, which makes
+// workers reusable across Join -> Leave -> Join cycles.
+func NewWorker[T any](cfg *WorkerConfig[T]) (*Worker[T], error) {
 	if cfg == nil {
 		return nil, errors.Join(ErrInvalidWorker, errors.New("nil worker config"))
 	}
 
-	w := &Worker[T]{
-		input:     make(chan *T),
-		done:      make(chan struct{}),
-		handlerFn: cfg.HandlerFunc,
-		events:    cfg.Events,
+	if cfg.HandlerFunc == nil {
+		return nil, errors.Join(ErrInvalidWorker, errors.New("nil handler"))
 	}
 
-	if w.handlerFn == nil {
-		return nil, errors.Join(ErrInvalidWorker, errors.New("nil handler"))
+	w := &Worker[T]{
+		id:        cfg.ID,
+		handlerFn: cfg.HandlerFunc,
+		events:    cfg.Events,
 	}
 
 	if w.events == nil {
 		w.events = &NoopEvents[T]{}
 	}
 
-	w.ctxFn, w.cancel = newWorkerContext(pCtx, cfg.ID)
-
 	return w, nil
 }
 
 func (w *Worker[T]) ID() uint64 {
-	return w.ctxFn().Value(CtxWorkerID).(uint64)
+	return w.id
 }
 
 func (w *Worker[T]) Close() error {
@@ -136,7 +127,18 @@ func (w *Worker[T]) Close() error {
 	return err
 }
 
-func (w *Worker[T]) Join(jobs Jobs[T]) error {
+// Join subscribes the worker to the given Jobs source using ctx as the parent
+// for this Join cycle. Each Join builds a fresh cancellable context via
+// newWorkerContext, so a worker can be Joined, Left, and Joined again.
+func (w *Worker[T]) Join(ctx context.Context, jobs Jobs[T]) error {
+	if ctx == nil {
+		return ErrNilCtx
+	}
+
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	if jobs == nil {
 		return ErrNilJob
 	}
@@ -151,7 +153,10 @@ func (w *Worker[T]) Join(jobs Jobs[T]) error {
 	}
 
 	w.events.Subscribed(w.ID())
+	w.ctxFn, w.cancel = newWorkerContext(ctx, w.id)
 	w.input = make(chan *T)
+	w.done = make(chan struct{})
+	w.startedNotified.Store(false)
 	w.channelName = jobs.Name()
 
 	go w.runLoop(jobs.Claims())
@@ -159,8 +164,17 @@ func (w *Worker[T]) Join(jobs Jobs[T]) error {
 	return nil
 }
 
-func (w *Worker[T]) Context() context.Context {
-	return w.ctxFn()
+// Context returns the worker's per-Join context and true if the worker is
+// currently Joined. It returns (nil, false) before the first Join and between
+// a Leave and the next Join. Using the comma-ok form makes the "no active
+// Join" state explicit and prevents callers from accidentally passing a nil
+// context to downstream APIs.
+func (w *Worker[T]) Context() (context.Context, bool) {
+	if w.ctxFn == nil {
+		return nil, false
+	}
+
+	return w.ctxFn(), true
 }
 
 func (w *Worker[T]) runLoop(jobs chan *Claim[T]) {
@@ -175,9 +189,9 @@ func (w *Worker[T]) runLoop(jobs chan *Claim[T]) {
 			return
 		case jobs <- &Claim[T]{id: w.ID(), input: w.input}:
 			w.running.Swap(true)
-			w.onceStarted.Do(func() {
+			if !w.startedNotified.Swap(true) {
 				w.events.WorkerStarted(w.ID())
-			})
+			}
 			continue
 		case job, ok := <-w.input:
 			if !ok {
@@ -185,12 +199,10 @@ func (w *Worker[T]) runLoop(jobs chan *Claim[T]) {
 				jobs = nil
 				continue
 			}
-
 			if err := w.processJob(job); err != nil {
 				w.events.JobFailed(err, job)
 				continue
 			}
-
 			w.events.JobOk(job)
 		}
 	}
@@ -226,6 +238,13 @@ func (w *Worker[T]) Leave(jobs Jobs[T], timeout time.Duration) error {
 
 	select {
 	case <-w.done:
+		// runLoop has exited (it deferred close(w.done)), so no goroutine
+		// is reading w.ctxFn anymore. Clearing it here honors the contract
+		// documented on Context(): "returns (nil, false) between a Leave
+		// and the next Join". On the timeout branch we intentionally leave
+		// these set — runLoop may still be executing and reading ctxFn.
+		w.ctxFn = nil
+		w.cancel = nil
 		return nil
 	case <-time.After(timeout):
 		w.events.LeaveTimeout(w.ID(), timeout)
