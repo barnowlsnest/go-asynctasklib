@@ -14,6 +14,13 @@ const CtxWorkerID CtxString = "worker"
 
 const idleTimeout = 100 * time.Millisecond
 
+var (
+	ErrWorkerTimeout        = errors.New("worker timeout")
+	ErrWorkerPanic          = errors.New("worker panic")
+	ErrInvalidWorker        = errors.New("invalid worker")
+	ErrWorkerAlreadyRunning = errors.New("worker already subscribed")
+)
+
 type (
 	CtxString string
 
@@ -152,7 +159,7 @@ func (w *Worker[T]) Join(jobs Jobs[T]) error {
 	return nil
 }
 
-func (w *Worker[T]) HandlerContext() context.Context {
+func (w *Worker[T]) Context() context.Context {
 	return w.ctxFn()
 }
 
@@ -162,6 +169,7 @@ func (w *Worker[T]) runLoop(jobs chan *Claim[T]) {
 	for {
 		select {
 		case <-time.After(idleTimeout):
+			continue
 		case <-w.ctxFn().Done():
 			w.running.Swap(false)
 			return

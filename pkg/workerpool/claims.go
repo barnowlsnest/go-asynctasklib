@@ -21,17 +21,23 @@ const (
 
 const submitJobTaskID = 1
 
+var (
+	ErrMaxPoolSize      = errors.New("max pool size exceeded")
+	ErrDispatcherClosed = errors.New("dispatcher closed")
+	ErrNoWorkers        = errors.New("no active workers")
+)
+
 type (
-	Channel[T any] struct {
+	Claims[T any] struct {
 		mu          sync.Mutex
-		cfg         *ChannelConfig
+		cfg         *ClaimsConfig
 		subscribers map[uint64]WorkerCloser[T]
 		claimsCh    chan *Claim[T]
 	}
 
-	ChannelConfig struct {
+	ClaimsConfig struct {
 		Name             string
-		MaxSize          int
+		Size             int
 		MaxSubmitRetries int
 		BaseRetryDelay   time.Duration
 		MaxRetryDelay    time.Duration
@@ -49,18 +55,13 @@ type (
 	}
 )
 
-func NewChannel[T any](cfg *ChannelConfig) *Channel[T] {
+func NewClaims[T any](cfg *ClaimsConfig) (*Claims[T], error) {
 	if cfg == nil {
-		cfg = &ChannelConfig{
-			MaxSize:          defaultMaxSize,
-			MaxSubmitRetries: defaultMaxSubmitRetries,
-			BaseRetryDelay:   defaultBaseRetryDelay,
-			MaxRetryDelay:    defaultMaxRetryDelay,
-		}
+		return nil, fmt.Errorf("%w: nil claims config", ErrNil)
 	}
 
-	if cfg.MaxSize <= 0 {
-		cfg.MaxSize = defaultMaxSize
+	if cfg.Size <= 0 {
+		cfg.Size = defaultMaxSize
 	}
 
 	if cfg.BaseRetryDelay == time.Duration(0) {
@@ -75,42 +76,42 @@ func NewChannel[T any](cfg *ChannelConfig) *Channel[T] {
 		cfg.MaxSubmitRetries = defaultMaxSubmitRetries
 	}
 
-	return &Channel[T]{
+	return &Claims[T]{
 		cfg:         cfg,
-		claimsCh:    make(chan *Claim[T], cfg.MaxSize),
-		subscribers: make(map[uint64]WorkerCloser[T], cfg.MaxSize),
-	}
+		claimsCh:    make(chan *Claim[T], cfg.Size),
+		subscribers: make(map[uint64]WorkerCloser[T], cfg.Size),
+	}, nil
 }
 
-func (ch *Channel[T]) send(job *T) error {
-	c, ok := <-ch.claimsCh
+func (c *Claims[T]) send(job *T) error {
+	worker, ok := <-c.claimsCh
 	if !ok {
 		return ErrDispatcherClosed
 	}
 
-	ch.mu.Lock()
-	defer ch.mu.Unlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
-	if len(ch.subscribers) == 0 {
+	if len(c.subscribers) == 0 {
 		return ErrNoWorkers
 	}
 
-	_, exists := ch.subscribers[c.id]
+	_, exists := c.subscribers[worker.id]
 	if !exists {
-		return fmt.Errorf("worker %d is not subscribed to %q", c.id, ch.cfg.Name)
+		return fmt.Errorf("worker %d is not subscribed to %q", worker.id, c.cfg.Name)
 	}
 
-	c.input <- job
+	worker.input <- job
 
 	return nil
 }
 
-func (ch *Channel[T]) newRetriableSubmit(job *T) (*task.Task, error) {
+func (c *Claims[T]) newRetriableSubmit(job *T) (*task.Task, error) {
 	if job == nil {
 		return nil, ErrNilJob
 	}
 
-	cfg := ch.cfg
+	cfg := c.cfg
 	retrier := retry.NewExponentialBackoff(
 		retry.WithBaseDelay(cfg.BaseRetryDelay),
 		retry.WithMaxDelay(cfg.MaxRetryDelay),
@@ -123,7 +124,7 @@ func (ch *Channel[T]) newRetriableSubmit(job *T) (*task.Task, error) {
 		task.WithMaxRetries(cfg.MaxSubmitRetries),
 		task.WithRetryStrategy(retrier),
 		task.WithTaskFn(func(r *task.Run) error {
-			err := ch.send(job)
+			err := c.send(job)
 			if errors.Is(err, ErrDispatcherClosed) {
 				r.Cancel()
 			}
@@ -140,31 +141,31 @@ func (ch *Channel[T]) newRetriableSubmit(job *T) (*task.Task, error) {
 	return task.New(*def), nil
 }
 
-func (ch *Channel[T]) Subscribe(w WorkerCloser[T]) error {
+func (c *Claims[T]) Subscribe(w WorkerCloser[T]) error {
 	if w == nil {
 		return ErrInvalidWorker
 	}
 
-	ch.mu.Lock()
-	defer ch.mu.Unlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
-	if len(ch.subscribers) >= ch.cfg.MaxSize {
+	if len(c.subscribers) >= c.cfg.Size {
 		return ErrMaxPoolSize
 	}
 
-	ch.subscribers[w.ID()] = w
+	c.subscribers[w.ID()] = w
 
 	return nil
 }
 
-func (ch *Channel[T]) Unsubscribe(w WorkerCloser[T]) error {
+func (c *Claims[T]) Unsubscribe(w WorkerCloser[T]) error {
 	if w == nil {
 		return nil
 	}
 
-	ch.mu.Lock()
-	defer ch.mu.Unlock()
-	sub, exists := ch.subscribers[w.ID()]
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	sub, exists := c.subscribers[w.ID()]
 	if !exists {
 		return nil
 	}
@@ -173,18 +174,18 @@ func (ch *Channel[T]) Unsubscribe(w WorkerCloser[T]) error {
 		return err
 	}
 
-	delete(ch.subscribers, w.ID())
+	delete(c.subscribers, w.ID())
 
 	return nil
 }
 
-func (ch *Channel[T]) Claims() chan *Claim[T] {
-	return ch.claimsCh
+func (c *Claims[T]) Claims() chan *Claim[T] {
+	return c.claimsCh
 }
 
-func (ch *Channel[T]) Submit(ctx context.Context, job *T) *Submission {
+func (c *Claims[T]) Submit(ctx context.Context, job *T) *Submission {
 	var s Submission
-	s.task, s.err = ch.newRetriableSubmit(job)
+	s.task, s.err = c.newRetriableSubmit(job)
 	if s.err != nil {
 		s.doneCh = make(chan struct{})
 		close(s.doneCh)
@@ -202,10 +203,10 @@ func (ch *Channel[T]) Submit(ctx context.Context, job *T) *Submission {
 	return &s
 }
 
-func (ch *Channel[T]) Name() string {
-	return ch.cfg.Name
+func (c *Claims[T]) Name() string {
+	return c.cfg.Name
 }
 
-func (ch *Channel[T]) MaxSize() int {
-	return ch.cfg.MaxSize
+func (c *Claims[T]) Size() int {
+	return c.cfg.Size
 }

@@ -126,7 +126,7 @@ func (s *WorkerTestSuite) TestNewWorker_CanceledParentContext() {
 		parentCancel()
 	})
 	wg.Go(func() {
-		ctx := w.HandlerContext()
+		ctx := w.Context()
 		<-ctx.Done()
 		errs <- ctx.Err()
 	})
@@ -243,7 +243,8 @@ func (s *WorkerTestSuite) TestWorker_ShouldReceiveJob() {
 	ctx := s.T().Context()
 	arrivals, errs := make(chan *int), make(chan error)
 	w := s.prepareTestWorker(ctx, resend(arrivals, errs))
-	jobs := NewChannel[int](&ChannelConfig{})
+	jobs, err := NewClaims[int](&ClaimsConfig{})
+	s.Require().NoError(err)
 	s.Require().NoError(w.Join(jobs))
 
 	job := 1
@@ -289,12 +290,14 @@ func (s *WorkerTestSuite) TestWorker_ShouldNotReceiveJobWhenLeft() {
 	ctx := s.T().Context()
 	arrivals, errs := make(chan *int), make(chan error)
 	w := s.prepareTestWorker(ctx, resend(arrivals, errs))
-	cfgChannel := &ChannelConfig{
+	cfgChannel := &ClaimsConfig{
 		MaxSubmitRetries: 1,
 		MaxRetryDelay:    500 * time.Millisecond,
 		SubmitTimeout:    500 * time.Millisecond,
 	}
-	jobs := NewChannel[int](cfgChannel)
+
+	jobs, err := NewClaims[int](cfgChannel)
+	s.Require().NoError(err)
 	s.Require().NoError(w.Join(jobs))
 	s.Require().NoError(w.Leave(jobs, time.Second))
 	job1, job2 := 1, 2

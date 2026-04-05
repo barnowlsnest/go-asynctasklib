@@ -1,11 +1,10 @@
 module github.com/barnowlsnest/go-asynctasklib
 
-go 1.25.7
+go 1.26.1
 
 require (
 	github.com/stretchr/testify v1.11.1
 	golang.org/x/sync v0.17.0
-	golang.org/x/time v0.15.0
 )
 
 require (
