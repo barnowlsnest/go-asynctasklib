@@ -58,7 +58,7 @@ func (s *PoolFixedSuite) TestFixed_SubmitsAreProcessed() {
 	p, err := New[int](s.T().Context(), s.fixedConfig(3), handler)
 	s.Require().NoError(err)
 
-	const n = 20
+	n := 20
 	subs := make([]*Submission, 0, n)
 	for i := range n {
 		job := i
@@ -129,45 +129,63 @@ func (s *PoolFixedSuite) TestFixed_WorkerIDContextValueIsSet() {
 	}
 }
 
-func (s *PoolFixedSuite) TestFixed_InvalidConfig() {
+// TestFixed_NewRejectsInvalidInput covers every New[T] failure path in a
+// single table: invalid parent contexts and invalid Config values both end
+// up as an error returned from New before any worker is created.
+func (s *PoolFixedSuite) TestFixed_NewRejectsInvalidInput() {
+	validCtx := s.T().Context()
+	canceledCtx, cancel := context.WithCancel(s.T().Context())
+	cancel()
+
 	cases := []struct {
-		title string
-		cfg   *Config[int]
+		title       string
+		ctx         context.Context
+		cfg         *Config[int]
+		expectedErr error
 	}{
 		{
-			title: "nil config",
-			cfg:   nil,
+			title:       "nil parent ctx",
+			ctx:         nil,
+			cfg:         s.fixedConfig(1),
+			expectedErr: ErrNilCtx,
 		},
 		{
-			title: "size <= 0",
-			cfg:   &Config[int]{Rate: 10, MaxSubmitRetries: 1, Size: 0},
+			title:       "canceled parent ctx",
+			ctx:         canceledCtx,
+			cfg:         s.fixedConfig(1),
+			expectedErr: context.Canceled,
 		},
 		{
-			title: "rate <= 0",
-			cfg:   &Config[int]{Rate: 0, MaxSubmitRetries: 1, Size: 1},
+			title:       "nil config",
+			ctx:         validCtx,
+			cfg:         nil,
+			expectedErr: ErrInvalidConfig,
 		},
 		{
-			title: "max submit retries <= 0",
-			cfg:   &Config[int]{Rate: 10, MaxSubmitRetries: 0, Size: 1},
+			title:       "size <= 0",
+			ctx:         validCtx,
+			cfg:         &Config[int]{Rate: 10, MaxSubmitRetries: 1, Size: 0},
+			expectedErr: ErrInvalidConfig,
+		},
+		{
+			title:       "rate <= 0",
+			ctx:         validCtx,
+			cfg:         &Config[int]{Rate: 0, MaxSubmitRetries: 1, Size: 1},
+			expectedErr: ErrInvalidConfig,
+		},
+		{
+			title:       "max submit retries <= 0",
+			ctx:         validCtx,
+			cfg:         &Config[int]{Rate: 10, MaxSubmitRetries: 0, Size: 1},
+			expectedErr: ErrInvalidConfig,
 		},
 	}
 
 	for _, tc := range cases {
 		s.Run(tc.title, func() {
-			_, err := New[int](s.T().Context(), tc.cfg, NoopHandler[int])
-			s.Require().ErrorIs(err, ErrInvalidConfig)
+			p, err := New[int](tc.ctx, tc.cfg, NoopHandler[int])
+			s.Require().ErrorIs(err, tc.expectedErr)
+			s.Require().Nil(p)
 		})
 	}
-}
-
-func (s *PoolFixedSuite) TestFixed_NilParentContext() {
-	_, err := New[int](nil, s.fixedConfig(1), NoopHandler[int]) //nolint:staticcheck // intentional
-	s.Require().ErrorIs(err, ErrNilCtx)
-}
-
-func (s *PoolFixedSuite) TestFixed_CanceledParentContext() {
-	ctx, cancel := context.WithCancel(s.T().Context())
-	cancel()
-	_, err := New[int](ctx, s.fixedConfig(1), NoopHandler[int])
-	s.Require().ErrorIs(err, context.Canceled)
 }
