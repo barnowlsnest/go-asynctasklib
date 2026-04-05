@@ -1,6 +1,6 @@
 # go-asynctasklib
 
-[![Go Version](https://img.shields.io/badge/go-1.25.7+-blue.svg)](https://golang.org/doc/devel/release.html)
+[![Go Version](https://img.shields.io/badge/go-1.26.1+-blue.svg)](https://golang.org/doc/devel/release.html)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Coverage](https://img.shields.io/badge/coverage-96%25-brightgreen.svg)](https://github.com/barnowlsnest/go-asynctasklib)
 
@@ -522,7 +522,7 @@ def, err := task.NewBuilder(opts...).Build()
 ### Yielder (`pkg/yielder`)
 
 - `yielder.New[T](ctx, opts ...Option[T]) (*Yielder[T], error)` - Create and start a new yielder
-- `Results() <-chan T` - Channel of generated values (closes on completion)
+- `Results() <-chan T` - Claims of generated values (closes on completion)
 - `Done() <-chan struct{}` - Closed when the yielder finishes (success, error, timeout, or stop)
 - `Stop()` - Stop the yielder (idempotent)
 - `Err() error` - Get accumulated errors
@@ -557,7 +557,7 @@ The library uses several synchronization primitives:
 - **`sync/atomic`**: For thread-safe state management and counters
 - **`sync.Mutex`**: To protect shared data structures (task lists, slices)
 - **`sync.WaitGroup`**: For coordinating goroutine completion and cleanup
-- **Channel-based Semaphore**: Lock-free concurrency control
+- **Claims-based Semaphore**: Lock-free concurrency control
 
 ### Design Principles
 
