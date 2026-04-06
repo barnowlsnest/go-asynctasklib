@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -33,6 +34,7 @@ type (
 		channelName     string
 		id              uint64
 		idleTimeout     time.Duration
+		mu              sync.Mutex
 		lastActiveAt    atomic.Int64
 		running         atomic.Bool
 		startedNotified atomic.Bool
@@ -149,10 +151,14 @@ func (w *Worker[T]) Join(ctx context.Context, jobs Jobs[T]) error {
 	}
 
 	w.events.Subscribed(w.ID())
+
+	w.mu.Lock()
 	w.ctxFn, w.cancel = newWorkerContext(ctx, w.id)
 	w.input = make(chan *T)
 	w.done = make(chan struct{})
 	w.channelName = jobs.Name()
+	w.mu.Unlock()
+
 	w.startedNotified.Store(false)
 	go w.runLoop(jobs.Claims())
 
@@ -165,6 +171,9 @@ func (w *Worker[T]) Join(ctx context.Context, jobs Jobs[T]) error {
 // Join" state explicit and prevents callers from accidentally passing a nil
 // context to downstream APIs.
 func (w *Worker[T]) Context() (context.Context, bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
 	if w.ctxFn == nil {
 		return nil, false
 	}
@@ -174,7 +183,6 @@ func (w *Worker[T]) Context() (context.Context, bool) {
 
 func (w *Worker[T]) runLoop(jobs chan *Claim[T]) {
 	defer close(w.done)
-
 	for {
 		select {
 		case <-time.After(w.idleTimeout):
@@ -183,12 +191,12 @@ func (w *Worker[T]) runLoop(jobs chan *Claim[T]) {
 			w.running.Swap(false)
 			return
 		case jobs <- &Claim[T]{id: w.ID(), input: w.input}:
-			w.running.Swap(true)
 			if !w.startedNotified.Swap(true) {
 				w.events.WorkerStarted(w.ID())
 			}
 			continue
 		case job := <-w.input:
+			w.running.Store(true)
 			if err := w.processJob(job); err != nil {
 				w.events.JobFailed(err, job)
 			} else {

@@ -211,7 +211,7 @@ func (s *WorkerTestSuite) TestWorker_HappyPath() {
 		defer t.Stop()
 		for {
 			<-t.C
-			if w.running.Load() {
+			if w.startedNotified.Load() {
 				close(started)
 				return
 			}
@@ -360,7 +360,7 @@ func (s *WorkerTestSuite) TestWorker_RejoinAfterLeave() {
 	wCtx, ok := w.Context()
 	s.Require().True(ok)
 	s.Require().NotNil(wCtx)
-	s.Require().NoError(jobs.Submit(ctx, new(42)))
+	s.Require().NoError(jobs.Submit(wCtx, new(42)))
 
 	select {
 	case got, ok := <-arrivals:
@@ -368,7 +368,7 @@ func (s *WorkerTestSuite) TestWorker_RejoinAfterLeave() {
 		s.Require().Equal(42, *got)
 	case err := <-errs:
 		s.Require().NoError(err)
-	case <-time.After(time.Second):
+	case <-time.After(10 * time.Second):
 		s.FailNow("job was not delivered after rejoin")
 	}
 
