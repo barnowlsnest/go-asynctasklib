@@ -11,7 +11,7 @@ import (
 
 const CtxWorkerID CtxString = "worker"
 
-const idleTimeout = 100 * time.Millisecond
+const defaultIdleTimeout = 100 * time.Millisecond
 
 var (
 	ErrWorkerTimeout        = errors.New("worker timeout")
@@ -32,8 +32,9 @@ type (
 
 	Worker[T any] struct {
 		io.Closer
-		id              uint64
 		channelName     string
+		id              uint64
+		idleTimeout     time.Duration
 		running         atomic.Bool
 		startedNotified atomic.Bool
 		events          Events[T]
@@ -97,13 +98,18 @@ func NewWorker[T any](cfg *WorkerConfig[T]) (*Worker[T], error) {
 	}
 
 	w := &Worker[T]{
-		id:        cfg.ID,
-		handlerFn: cfg.HandlerFunc,
-		events:    cfg.Events,
+		id:          cfg.ID,
+		handlerFn:   cfg.HandlerFunc,
+		events:      cfg.Events,
+		idleTimeout: cfg.IdleTimeout,
 	}
 
 	if w.events == nil {
 		w.events = &NoopEvents[T]{}
+	}
+
+	if w.idleTimeout == time.Duration(0) {
+		w.idleTimeout = defaultIdleTimeout
 	}
 
 	return w, nil
@@ -182,7 +188,7 @@ func (w *Worker[T]) runLoop(jobs chan *Claim[T]) {
 
 	for {
 		select {
-		case <-time.After(idleTimeout):
+		case <-time.After(w.idleTimeout):
 			continue
 		case <-w.ctxFn().Done():
 			w.running.Swap(false)

@@ -61,8 +61,7 @@ func (s *PoolFixedSuite) TestFixed_SubmitsAreProcessed() {
 	n := 20
 	subs := make([]*Submission, 0, n)
 	for i := range n {
-		job := i
-		sub, submitErr := p.Submit(&job)
+		sub, submitErr := p.Submit(new(i))
 		s.Require().NoError(submitErr)
 		s.Require().NotNil(sub)
 		subs = append(subs, sub)
@@ -106,8 +105,7 @@ func (s *PoolFixedSuite) TestFixed_WorkerIDContextValueIsSet() {
 
 	const n = 4
 	for i := range n {
-		job := i
-		sub, submitErr := p.Submit(&job)
+		sub, submitErr := p.Submit(new(i))
 		s.Require().NoError(submitErr)
 		<-sub.Done()
 		s.Require().NoError(sub.Err())
