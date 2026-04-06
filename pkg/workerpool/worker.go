@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"sync/atomic"
 	"time"
 )
@@ -31,10 +30,10 @@ type (
 	}
 
 	Worker[T any] struct {
-		io.Closer
 		channelName     string
 		id              uint64
 		idleTimeout     time.Duration
+		lastActiveAt    atomic.Int64
 		running         atomic.Bool
 		startedNotified atomic.Bool
 		events          Events[T]
@@ -103,6 +102,7 @@ func NewWorker[T any](cfg *WorkerConfig[T]) (*Worker[T], error) {
 		events:      cfg.Events,
 		idleTimeout: cfg.IdleTimeout,
 	}
+	w.lastActiveAt.Store(time.Now().UTC().UnixNano())
 
 	if w.events == nil {
 		w.events = &NoopEvents[T]{}
@@ -119,18 +119,8 @@ func (w *Worker[T]) ID() uint64 {
 	return w.id
 }
 
-func (w *Worker[T]) Close() error {
-	var err error
-	func() {
-		defer func() {
-			if r := recover(); r != nil {
-				err = errors.Join(ErrWorkerPanic, errors.New("panic on closing job input chan"))
-			}
-		}()
-		close(w.input)
-	}()
-
-	return err
+func (w *Worker[T]) LastActiveAt() int64 {
+	return w.lastActiveAt.Load()
 }
 
 // Join subscribes the worker to the given Jobs source using ctx as the parent
@@ -162,9 +152,8 @@ func (w *Worker[T]) Join(ctx context.Context, jobs Jobs[T]) error {
 	w.ctxFn, w.cancel = newWorkerContext(ctx, w.id)
 	w.input = make(chan *T)
 	w.done = make(chan struct{})
-	w.startedNotified.Store(false)
 	w.channelName = jobs.Name()
-
+	w.startedNotified.Store(false)
 	go w.runLoop(jobs.Claims())
 
 	return nil
@@ -199,17 +188,15 @@ func (w *Worker[T]) runLoop(jobs chan *Claim[T]) {
 				w.events.WorkerStarted(w.ID())
 			}
 			continue
-		case job, ok := <-w.input:
-			if !ok {
-				w.input = nil
-				jobs = nil
-				continue
-			}
+		case job := <-w.input:
 			if err := w.processJob(job); err != nil {
 				w.events.JobFailed(err, job)
-				continue
+			} else {
+				w.events.JobOk(job)
 			}
-			w.events.JobOk(job)
+
+			w.running.Store(false)
+			w.lastActiveAt.Store(time.Now().UnixNano())
 		}
 	}
 }
@@ -230,7 +217,7 @@ func (w *Worker[T]) processJob(job *T) (err error) {
 
 func (w *Worker[T]) Leave(jobs Jobs[T], timeout time.Duration) error {
 	if jobs == nil {
-		return nil
+		return fmt.Errorf("%w: nil jobs", ErrNil)
 	}
 
 	if err := jobs.Unsubscribe(w); err != nil {
@@ -244,11 +231,6 @@ func (w *Worker[T]) Leave(jobs Jobs[T], timeout time.Duration) error {
 
 	select {
 	case <-w.done:
-		// runLoop has exited (it deferred close(w.done)), so no goroutine
-		// is reading w.ctxFn anymore. Clearing it here honors the contract
-		// documented on Context(): "returns (nil, false) between a Leave
-		// and the next Join". On the timeout branch we intentionally leave
-		// these set — runLoop may still be executing and reading ctxFn.
 		w.ctxFn = nil
 		w.cancel = nil
 		return nil
