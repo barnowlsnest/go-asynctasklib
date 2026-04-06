@@ -4,14 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
+	"sync"
 	"sync/atomic"
 	"time"
 )
 
 const CtxWorkerID CtxString = "worker"
 
-const idleTimeout = 100 * time.Millisecond
+const defaultIdleTimeout = 100 * time.Millisecond
 
 var (
 	ErrWorkerTimeout        = errors.New("worker timeout")
@@ -31,9 +31,11 @@ type (
 	}
 
 	Worker[T any] struct {
-		io.Closer
-		id              uint64
 		channelName     string
+		id              uint64
+		idleTimeout     time.Duration
+		mu              sync.Mutex
+		lastActiveAt    atomic.Int64
 		running         atomic.Bool
 		startedNotified atomic.Bool
 		events          Events[T]
@@ -97,13 +99,19 @@ func NewWorker[T any](cfg *WorkerConfig[T]) (*Worker[T], error) {
 	}
 
 	w := &Worker[T]{
-		id:        cfg.ID,
-		handlerFn: cfg.HandlerFunc,
-		events:    cfg.Events,
+		id:          cfg.ID,
+		handlerFn:   cfg.HandlerFunc,
+		events:      cfg.Events,
+		idleTimeout: cfg.IdleTimeout,
 	}
+	w.lastActiveAt.Store(time.Now().UTC().UnixNano())
 
 	if w.events == nil {
 		w.events = &NoopEvents[T]{}
+	}
+
+	if w.idleTimeout == time.Duration(0) {
+		w.idleTimeout = defaultIdleTimeout
 	}
 
 	return w, nil
@@ -113,18 +121,8 @@ func (w *Worker[T]) ID() uint64 {
 	return w.id
 }
 
-func (w *Worker[T]) Close() error {
-	var err error
-	func() {
-		defer func() {
-			if r := recover(); r != nil {
-				err = errors.Join(ErrWorkerPanic, errors.New("panic on closing job input chan"))
-			}
-		}()
-		close(w.input)
-	}()
-
-	return err
+func (w *Worker[T]) LastActiveAt() int64 {
+	return w.lastActiveAt.Load()
 }
 
 // Join subscribes the worker to the given Jobs source using ctx as the parent
@@ -153,12 +151,15 @@ func (w *Worker[T]) Join(ctx context.Context, jobs Jobs[T]) error {
 	}
 
 	w.events.Subscribed(w.ID())
+
+	w.mu.Lock()
 	w.ctxFn, w.cancel = newWorkerContext(ctx, w.id)
 	w.input = make(chan *T)
 	w.done = make(chan struct{})
-	w.startedNotified.Store(false)
 	w.channelName = jobs.Name()
+	w.mu.Unlock()
 
+	w.startedNotified.Store(false)
 	go w.runLoop(jobs.Claims())
 
 	return nil
@@ -170,6 +171,9 @@ func (w *Worker[T]) Join(ctx context.Context, jobs Jobs[T]) error {
 // Join" state explicit and prevents callers from accidentally passing a nil
 // context to downstream APIs.
 func (w *Worker[T]) Context() (context.Context, bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
 	if w.ctxFn == nil {
 		return nil, false
 	}
@@ -179,31 +183,28 @@ func (w *Worker[T]) Context() (context.Context, bool) {
 
 func (w *Worker[T]) runLoop(jobs chan *Claim[T]) {
 	defer close(w.done)
-
 	for {
 		select {
-		case <-time.After(idleTimeout):
+		case <-time.After(w.idleTimeout):
 			continue
 		case <-w.ctxFn().Done():
 			w.running.Swap(false)
 			return
 		case jobs <- &Claim[T]{id: w.ID(), input: w.input}:
-			w.running.Swap(true)
 			if !w.startedNotified.Swap(true) {
 				w.events.WorkerStarted(w.ID())
 			}
 			continue
-		case job, ok := <-w.input:
-			if !ok {
-				w.input = nil
-				jobs = nil
-				continue
-			}
+		case job := <-w.input:
+			w.running.Store(true)
 			if err := w.processJob(job); err != nil {
 				w.events.JobFailed(err, job)
-				continue
+			} else {
+				w.events.JobOk(job)
 			}
-			w.events.JobOk(job)
+
+			w.running.Store(false)
+			w.lastActiveAt.Store(time.Now().UnixNano())
 		}
 	}
 }
@@ -224,7 +225,7 @@ func (w *Worker[T]) processJob(job *T) (err error) {
 
 func (w *Worker[T]) Leave(jobs Jobs[T], timeout time.Duration) error {
 	if jobs == nil {
-		return nil
+		return fmt.Errorf("%w: nil jobs", ErrNil)
 	}
 
 	if err := jobs.Unsubscribe(w); err != nil {
@@ -238,11 +239,6 @@ func (w *Worker[T]) Leave(jobs Jobs[T], timeout time.Duration) error {
 
 	select {
 	case <-w.done:
-		// runLoop has exited (it deferred close(w.done)), so no goroutine
-		// is reading w.ctxFn anymore. Clearing it here honors the contract
-		// documented on Context(): "returns (nil, false) between a Leave
-		// and the next Join". On the timeout branch we intentionally leave
-		// these set — runLoop may still be executing and reading ctxFn.
 		w.ctxFn = nil
 		w.cancel = nil
 		return nil

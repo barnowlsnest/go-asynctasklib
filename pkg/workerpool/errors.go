@@ -6,7 +6,8 @@ import (
 )
 
 var (
-	ErrNil    = errors.New("nil error")
-	ErrNilJob = fmt.Errorf("%w: nil job", ErrNil)
-	ErrNilCtx = fmt.Errorf("%w: nil context", ErrNil)
+	ErrNil          = errors.New("nil error")
+	ErrNilJob       = fmt.Errorf("%w: nil job", ErrNil)
+	ErrNilCtx       = fmt.Errorf("%w: nil context", ErrNil)
+	ErrPoolShutdown = errors.New("worker pool is shut down")
 )

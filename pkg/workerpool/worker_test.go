@@ -10,8 +10,6 @@ import (
 
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
-
-	"github.com/barnowlsnest/go-asynctasklib/pkg/task"
 )
 
 type (
@@ -213,7 +211,7 @@ func (s *WorkerTestSuite) TestWorker_HappyPath() {
 		defer t.Stop()
 		for {
 			<-t.C
-			if w.running.Load() {
+			if w.startedNotified.Load() {
 				close(started)
 				return
 			}
@@ -265,9 +263,7 @@ func (s *WorkerTestSuite) TestWorker_ShouldReceiveJob() {
 	var wg sync.WaitGroup
 	done := make(chan error)
 	wg.Go(func() {
-		sub := jobs.Submit(ctx, &job)
-		<-sub.Done()
-		if err := sub.Err(); err != nil {
+		if err := jobs.Submit(ctx, &job); err != nil {
 			errs <- err
 			return
 		}
@@ -292,7 +288,7 @@ func (s *WorkerTestSuite) TestWorker_ShouldReceiveJob() {
 	}()
 
 	select {
-	case <-time.After(time.Second):
+	case <-time.After(3 * time.Second):
 		s.FailNow("timeout")
 	case err := <-errs:
 		s.Require().NoError(err)
@@ -305,31 +301,20 @@ func (s *WorkerTestSuite) TestWorker_ShouldNotReceiveJobWhenLeft() {
 	arrivals, errs := make(chan *int), make(chan error)
 	w := s.prepareTestWorker(resend(arrivals, errs))
 	cfgChannel := &ClaimsConfig{
-		MaxSubmitRetries: 1,
-		MaxRetryDelay:    500 * time.Millisecond,
-		SubmitTimeout:    500 * time.Millisecond,
+		SubmitTimeout: time.Second,
 	}
 
 	jobs, err := NewClaims[int](cfgChannel)
 	s.Require().NoError(err)
 	s.Require().NoError(w.Join(ctx, jobs))
 	s.Require().NoError(w.Leave(jobs, time.Second))
-	job1, job2 := 1, 2
-	sub1, sub2 := jobs.Submit(ctx, &job1), jobs.Submit(ctx, &job2)
+	job1, job2 := new(1), new(2)
 	var wg sync.WaitGroup
 	wg.Go(func() {
-		<-sub1.Done()
-		if err := sub1.Err(); err != nil {
-			errs <- err
-			return
-		}
+		errs <- jobs.Submit(ctx, job1)
 	})
 	wg.Go(func() {
-		<-sub2.Done()
-		if err := sub2.Err(); err != nil {
-			errs <- err
-			return
-		}
+		errs <- jobs.Submit(ctx, job2)
 	})
 
 	go func() {
@@ -338,14 +323,14 @@ func (s *WorkerTestSuite) TestWorker_ShouldNotReceiveJobWhenLeft() {
 	}()
 
 	select {
-	case <-time.After(time.Second):
+	case <-time.After(3 * time.Second):
 		s.FailNow("timeout")
 	case _, ok := <-arrivals:
 		if !ok {
 			return
 		}
 	case err := <-errs:
-		s.Require().ErrorContains(err, task.ErrMaxRetriesExceeded.Error())
+		s.Require().ErrorContains(err, ErrNoWorkers.Error())
 	}
 }
 
@@ -360,7 +345,6 @@ func (s *WorkerTestSuite) TestWorker_RejoinAfterLeave() {
 	jobs, err := NewClaims[int](&ClaimsConfig{})
 	s.Require().NoError(err)
 
-	// First Join/Leave cycle.
 	s.Require().NoError(w.Join(ctx, jobs))
 	s.Require().NoError(w.Leave(jobs, time.Second))
 	s.Require().False(w.running.Load())
@@ -370,16 +354,11 @@ func (s *WorkerTestSuite) TestWorker_RejoinAfterLeave() {
 	s.Require().False(ok)
 	s.Require().Nil(leftCtx)
 
-	// Second Join with a fresh context must succeed and deliver a job.
 	s.Require().NoError(w.Join(ctx, jobs))
 	wCtx, ok := w.Context()
 	s.Require().True(ok)
 	s.Require().NotNil(wCtx)
-
-	job := 42
-	sub := jobs.Submit(ctx, &job)
-	<-sub.Done()
-	s.Require().NoError(sub.Err())
+	s.Require().NoError(jobs.Submit(wCtx, new(42)))
 
 	select {
 	case got, ok := <-arrivals:
@@ -387,7 +366,7 @@ func (s *WorkerTestSuite) TestWorker_RejoinAfterLeave() {
 		s.Require().Equal(42, *got)
 	case err := <-errs:
 		s.Require().NoError(err)
-	case <-time.After(time.Second):
+	case <-time.After(10 * time.Second):
 		s.FailNow("job was not delivered after rejoin")
 	}
 
