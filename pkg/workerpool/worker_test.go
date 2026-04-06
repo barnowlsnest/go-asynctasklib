@@ -345,7 +345,6 @@ func (s *WorkerTestSuite) TestWorker_RejoinAfterLeave() {
 	jobs, err := NewClaims[int](&ClaimsConfig{})
 	s.Require().NoError(err)
 
-	// First Join/Leave cycle.
 	s.Require().NoError(w.Join(ctx, jobs))
 	s.Require().NoError(w.Leave(jobs, time.Second))
 	s.Require().False(w.running.Load())
@@ -355,7 +354,6 @@ func (s *WorkerTestSuite) TestWorker_RejoinAfterLeave() {
 	s.Require().False(ok)
 	s.Require().Nil(leftCtx)
 
-	// Second Join with a fresh context must succeed and deliver a job.
 	s.Require().NoError(w.Join(ctx, jobs))
 	wCtx, ok := w.Context()
 	s.Require().True(ok)
