@@ -194,17 +194,22 @@ func (w *Worker[T]) runLoop(jobs chan *Claim[T]) {
 			if !w.startedNotified.Swap(true) {
 				w.events.WorkerStarted(w.ID())
 			}
-			continue
-		case job := <-w.input:
-			w.running.Store(true)
-			if err := w.processJob(job); err != nil {
-				w.events.JobFailed(err, job)
-			} else {
-				w.events.JobOk(job)
-			}
 
-			w.running.Store(false)
-			w.lastActiveAt.Store(time.Now().UnixNano())
+			select {
+			case <-w.ctxFn().Done():
+				w.running.Swap(false)
+				return
+			case job := <-w.input:
+				w.running.Store(true)
+				if err := w.processJob(job); err != nil {
+					w.events.JobFailed(err, job)
+				} else {
+					w.events.JobOk(job)
+				}
+
+				w.running.Store(false)
+				w.lastActiveAt.Store(time.Now().UnixNano())
+			}
 		}
 	}
 }
