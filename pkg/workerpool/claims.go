@@ -138,6 +138,8 @@ func (c *Claims[T]) Submit(ctx context.Context, job *T) error {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
+		case <-time.After(c.cfg.SubmitTimeout):
+			return ErrSubmitTimeout
 		case worker, ok := <-c.claimsCh:
 			if !ok {
 				return ErrDispatcherClosed
@@ -145,40 +147,39 @@ func (c *Claims[T]) Submit(ctx context.Context, job *T) error {
 			if err := c.check(worker); err != nil {
 				return err
 			}
+
 			select {
-			case <-time.After(c.cfg.SubmitTimeout):
-				return ErrSubmitTimeout
 			case <-ctx.Done():
 				return ctx.Err()
 			case worker.input <- job:
 				return nil
-			}
-		default:
-			if time.Since(begin) >= c.cfg.SubmitTimeout {
-				c.mu.Lock()
-				subs := len(c.subscribers)
-				c.mu.Unlock()
-				switch subs {
-				case 0:
-					return ErrNoWorkers
-				default:
-					return ErrSubmitTimeout
+			default:
+				if time.Since(begin) >= c.cfg.SubmitTimeout {
+					c.mu.Lock()
+					subs := len(c.subscribers)
+					c.mu.Unlock()
+					switch subs {
+					case 0:
+						return ErrNoWorkers
+					default:
+						return ErrSubmitTimeout
+					}
 				}
-			}
 
-			remaining := c.cfg.SubmitTimeout - time.Since(begin)
-			sleep := backoff
-			if sleep > remaining {
-				sleep = remaining
-			}
+				remaining := c.cfg.SubmitTimeout - time.Since(begin)
+				sleep := backoff
+				if sleep > remaining {
+					sleep = remaining
+				}
 
-			time.Sleep(sleep)
-			backoff *= 2
-			if backoff > maxBackoff {
-				backoff = maxBackoff
-			}
+				time.Sleep(sleep)
+				backoff *= 2
+				if backoff > maxBackoff {
+					backoff = maxBackoff
+				}
 
-			continue
+				continue
+			}
 		}
 	}
 }

@@ -307,6 +307,7 @@ func (s *WorkerTestSuite) TestWorker_ShouldNotReceiveJobWhenLeft() {
 	jobs, err := NewClaims[int](cfgChannel)
 	s.Require().NoError(err)
 	s.Require().NoError(w.Join(ctx, jobs))
+	time.Sleep(time.Second)
 	s.Require().NoError(w.Leave(jobs, time.Second))
 	job1, job2 := new(1), new(2)
 	var wg sync.WaitGroup
@@ -342,10 +343,11 @@ func (s *WorkerTestSuite) TestWorker_RejoinAfterLeave() {
 	arrivals, errs := make(chan *int, 1), make(chan error, 1)
 	w := s.prepareTestWorker(resend(arrivals, errs))
 
-	jobs, err := NewClaims[int](&ClaimsConfig{})
+	jobs, err := NewClaims[int](&ClaimsConfig{SubmitTimeout: time.Second})
 	s.Require().NoError(err)
 
 	s.Require().NoError(w.Join(ctx, jobs))
+	time.Sleep(time.Second)
 	s.Require().NoError(w.Leave(jobs, time.Second))
 	s.Require().False(w.running.Load())
 
