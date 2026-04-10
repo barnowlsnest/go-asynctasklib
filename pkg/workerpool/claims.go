@@ -130,6 +130,12 @@ func (c *Claims[T]) Submit(ctx context.Context, job *T) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-time.After(c.cfg.SubmitTimeout):
+			c.mu.Lock()
+			subs := len(c.subscribers)
+			c.mu.Unlock()
+			if subs == 0 {
+				return ErrNoWorkers
+			}
 			return ErrSubmitTimeout
 		case worker, ok := <-c.claimsCh:
 			if !ok {
@@ -171,6 +177,12 @@ func (c *Claims[T]) Submit(ctx context.Context, job *T) error {
 
 func (c *Claims[T]) Name() string {
 	return c.cfg.Name
+}
+
+// Claims exposes the inbound advertisement channel so workers can publish
+// their availability. It satisfies the Jobs[T] interface used by Worker.Join.
+func (c *Claims[T]) Claims() chan *Claim[T] {
+	return c.claimsCh
 }
 
 func (c *Claims[T]) Size() int {

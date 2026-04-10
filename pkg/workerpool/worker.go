@@ -125,6 +125,12 @@ func (w *Worker[T]) LastActiveAt() int64 {
 	return w.lastActiveAt.Load()
 }
 
+// IsRunning reports whether the worker is currently processing a job. Used by
+// the pool's autoscaler to avoid leaving a busy worker when scaling down.
+func (w *Worker[T]) IsRunning() bool {
+	return w.running.Load()
+}
+
 // Join subscribes the worker to the given Jobs source using ctx as the parent
 // for this Join cycle. Each Join builds a fresh cancellable context via
 // newWorkerContext, so a worker can be Joined, Left, and Joined again.
@@ -151,6 +157,10 @@ func (w *Worker[T]) Join(ctx context.Context, jobs Jobs[T]) error {
 	}
 
 	w.events.Subscribed(w.ID())
+
+	// Reset the idle clock on every Join so autoscalers don't immediately
+	// classify a freshly-joined worker as idle based on a stale timestamp.
+	w.lastActiveAt.Store(time.Now().UnixNano())
 
 	w.mu.Lock()
 	w.ctxFn, w.cancel = newWorkerContext(ctx, w.id)
