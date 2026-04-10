@@ -21,6 +21,7 @@ type (
 	WorkerPool[T any] struct {
 		once             sync.Once
 		wg               sync.WaitGroup
+		err              atomic.Pointer[error]
 		reject           atomic.Bool
 		backlog          chan *T
 		workers          map[uint64]*Worker[T]
@@ -162,6 +163,15 @@ func (pool *WorkerPool[T]) Submit(job *T) error {
 	}
 }
 
+func (pool *WorkerPool[T]) Err() error {
+	err := pool.err.Load()
+	if err != nil {
+		return *err
+	}
+
+	return nil
+}
+
 func (pool *WorkerPool[T]) listen() {
 	for {
 		select {
@@ -172,40 +182,14 @@ func (pool *WorkerPool[T]) listen() {
 				return
 			}
 
-			if err := pool.submit(job); err != nil {
+			if err := pool.availableWorkers.Submit(pool.ctx(), job); err != nil {
 				switch {
-				case errors.Is(err, ErrDispatcherClosed):
-					return
 				case errors.Is(err, ErrSubmitTimeout):
 					continue
 				default:
-
+					pool.err.Store(&err)
 					return
 				}
-			}
-		}
-	}
-}
-
-func (pool *WorkerPool[T]) submit(job *T) error {
-	for {
-		select {
-		case <-pool.ctx().Done():
-			return pool.ctx().Err()
-		case <-time.After(pool.cfg.SubmitTimeout):
-			return ErrSubmitTimeout
-		case worker, ok := <-pool.availableWorkers.Claims():
-			if !ok {
-				return ErrDispatcherClosed
-			}
-
-			select {
-			case <-pool.ctx().Done():
-				return pool.ctx().Err()
-			case <-time.After(pool.cfg.SubmitTimeout):
-				return ErrSubmitTimeout
-			case worker.input <- job:
-				return nil
 			}
 		}
 	}

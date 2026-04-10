@@ -20,6 +20,7 @@ const (
 	defaultSubmitBackoff        = 50 * time.Millisecond
 	defaultSubmitTimeout        = time.Second
 	defaultSubmitAttemptsPerSec = 5
+	defaultBackoffFactor        = 1.5
 )
 
 type (
@@ -32,6 +33,7 @@ type (
 
 	ClaimsConfig struct {
 		Name                 string
+		BackoffFactor        float64
 		Size                 int
 		SubmitAttemptsPerSec int
 		SubmitBackoff        time.Duration
@@ -64,6 +66,10 @@ func (cfg *ClaimsConfig) applyDefaults() {
 	if cfg.SubmitAttemptsPerSec <= 0 {
 		cfg.SubmitAttemptsPerSec = defaultSubmitAttemptsPerSec
 	}
+
+	if cfg.BackoffFactor <= 0 || cfg.BackoffFactor > 1 {
+		cfg.BackoffFactor = defaultBackoffFactor
+	}
 }
 
 func NewClaims[T any](cfg *ClaimsConfig) (*Claims[T], error) {
@@ -78,22 +84,6 @@ func NewClaims[T any](cfg *ClaimsConfig) (*Claims[T], error) {
 		claimsCh:    make(chan *Claim[T], cfg.Size),
 		subscribers: make(map[uint64]WorkerCloser[T], cfg.Size),
 	}, nil
-}
-
-func (c *Claims[T]) check(worker *Claim[T]) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if len(c.subscribers) == 0 {
-		return ErrNoWorkers
-	}
-
-	_, exists := c.subscribers[worker.id]
-	if !exists {
-		return fmt.Errorf("worker %d is not subscribed to %q", worker.id, c.cfg.Name)
-	}
-
-	return nil
 }
 
 func (c *Claims[T]) Subscribe(w WorkerCloser[T]) error {
@@ -120,6 +110,7 @@ func (c *Claims[T]) Unsubscribe(w WorkerCloser[T]) error {
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
 	_, exists := c.subscribers[w.ID()]
 	if !exists {
 		return nil
@@ -128,10 +119,6 @@ func (c *Claims[T]) Unsubscribe(w WorkerCloser[T]) error {
 	delete(c.subscribers, w.ID())
 
 	return nil
-}
-
-func (c *Claims[T]) Claims() chan *Claim[T] {
-	return c.claimsCh
 }
 
 func (c *Claims[T]) Submit(ctx context.Context, job *T) error {
@@ -148,9 +135,6 @@ func (c *Claims[T]) Submit(ctx context.Context, job *T) error {
 			if !ok {
 				return ErrDispatcherClosed
 			}
-			if err := c.check(worker); err != nil {
-				return err
-			}
 
 			select {
 			case <-ctx.Done():
@@ -162,11 +146,8 @@ func (c *Claims[T]) Submit(ctx context.Context, job *T) error {
 					c.mu.Lock()
 					subs := len(c.subscribers)
 					c.mu.Unlock()
-					switch subs {
-					case 0:
+					if subs == 0 {
 						return ErrNoWorkers
-					default:
-						return ErrSubmitTimeout
 					}
 				}
 
