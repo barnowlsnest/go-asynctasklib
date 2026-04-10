@@ -84,8 +84,7 @@ func (s *PoolE2ETestSuite) TestFixedSize_ConcurrentProducersAggregate() {
 	for p := range producers {
 		wg.Go(func() {
 			for i := 1; i <= perProducer; i++ {
-				v := p*perProducer + i
-				s.Require().NoError(pool.Submit(&v))
+				s.Require().NoError(pool.Submit(new(p*perProducer + i)))
 			}
 		})
 	}
@@ -145,8 +144,7 @@ func (s *PoolE2ETestSuite) TestFixedSize_ErrorsAndPanicsKeepFlowing() {
 	defer pool.Close()
 
 	for i := 1; i <= total; i++ {
-		job := i
-		s.Require().NoError(pool.Submit(&job))
+		s.Require().NoError(pool.Submit(new(i)))
 	}
 
 	s.Require().Eventually(func() bool {
@@ -314,8 +312,7 @@ func (s *PoolE2ETestSuite) TestGracefulCloseRejectsNewWork() {
 				return
 			default:
 			}
-			job := i
-			_ = pool.Submit(&job)
+			_ = pool.Submit(new(i))
 		}
 	})
 
@@ -335,4 +332,169 @@ func (s *PoolE2ETestSuite) TestGracefulCloseRejectsNewWork() {
 
 	// Double close should also be safe thanks to sync.Once.
 	s.Require().NotPanics(func() { pool.Close() })
+}
+
+// TestProductionShape_HeterogeneousProducers simulates a production service
+// where three independent producer goroutines push work onto the same pool.
+// Each producer represents a realistic pattern — request-driven bursts, a
+// ticker-driven periodic feed, and a batch flush — and none of them know
+// about each other. The pool runs in AutoScale mode with a deliberately
+// small backlog so producers exercise backpressure and the scaler has to
+// grow the worker set to keep up. The test passes only if:
+//
+//   - every submitted job is delivered to the handler exactly once (sum
+//     identity over distinct value ranges per producer),
+//   - Events.JobOk matches the per-handler counter and JobFailed stays zero,
+//   - the autoscaler started more workers than MinSize at some point.
+func (s *PoolE2ETestSuite) TestProductionShape_HeterogeneousProducers() {
+	const (
+		minWorkers = 2
+		maxWorkers = 6
+
+		requestJobs = 150 // values 1..150
+		tickerJobs  = 80  // values 1001..1080
+		batchJobs   = 120 // values 2001..2120
+		totalJobs   = requestJobs + tickerJobs + batchJobs
+	)
+
+	var (
+		processed atomic.Int64
+		sum       atomic.Int64
+	)
+	handler := func(_ context.Context, job *int) error {
+		// Variable per-job cost, like real handlers doing different work.
+		time.Sleep(time.Duration((*job%3)+1) * time.Millisecond)
+		sum.Add(int64(*job))
+		processed.Add(1)
+		return nil
+	}
+
+	events := &countingEvents[int]{}
+	pool, err := New(s.T().Context(),
+		WithConfig[int](&Config{
+			Mode:          ModeAutoScale,
+			MinSize:       minWorkers,
+			MaxSize:       maxWorkers,
+			IdleTimeout:   150 * time.Millisecond,
+			ScaleInterval: 20 * time.Millisecond,
+			ClaimsConfig:  ClaimsConfig{SubmitTimeout: 5 * time.Second},
+			// Small backlog so producers feel backpressure while the
+			// autoscaler is still catching up.
+			Backlog:   50,
+			RateLimit: 10_000,
+		}),
+		WithHandler(handler),
+		WithEvents(events),
+	)
+	s.Require().NoError(err)
+	defer pool.Close()
+
+	// A single cancellable context governs every producer; the test can
+	// bail cleanly on failure without leaking goroutines.
+	producerCtx, cancel := context.WithCancel(s.T().Context())
+	defer cancel()
+
+	// submit retries Submit until it succeeds, the pool shuts down, or
+	// the producer context is canceled. Production code would usually
+	// bubble the error up to the caller; for the test we just persist.
+	submit := func(job *int) bool {
+		for {
+			err := pool.Submit(job)
+			if err == nil {
+				return true
+			}
+			if errors.Is(err, ErrPoolShutdown) || producerCtx.Err() != nil {
+				return false
+			}
+			// ErrSubmitTimeout means the backlog stayed full for the
+			// SubmitTimeout window — back off briefly and try again.
+			time.Sleep(2 * time.Millisecond)
+		}
+	}
+
+	var (
+		wg        sync.WaitGroup
+		submitted atomic.Int64
+	)
+
+	// Producer 1 — request-driven: fires a burst of 10, pauses, repeats.
+	// Simulates an HTTP handler goroutine pool answering incoming traffic.
+	wg.Go(func() {
+		for i := 1; i <= requestJobs; i++ {
+			if producerCtx.Err() != nil {
+				return
+			}
+			if !submit(new(i)) {
+				return
+			}
+			submitted.Add(1)
+			if i%10 == 0 {
+				time.Sleep(4 * time.Millisecond)
+			}
+		}
+	})
+
+	// Producer 2 — ticker-driven: a cron/flusher feeding periodic work.
+	wg.Go(func() {
+		tick := time.NewTicker(2 * time.Millisecond)
+		defer tick.Stop()
+		for i := 1; i <= tickerJobs; i++ {
+			select {
+			case <-producerCtx.Done():
+				return
+			case <-tick.C:
+			}
+			if !submit(new(1000 + i)) {
+				return
+			}
+			submitted.Add(1)
+		}
+	})
+
+	// Producer 3 — batch: dumps a full batch as fast as the backlog will
+	// take it, exercising the backpressure path on the small queue.
+	wg.Go(func() {
+		for i := 1; i <= batchJobs; i++ {
+			if producerCtx.Err() != nil {
+				return
+			}
+			if !submit(new(2000 + i)) {
+				return
+			}
+			submitted.Add(1)
+		}
+	})
+
+	wg.Wait()
+	s.Require().Equal(int64(totalJobs), submitted.Load(), "every submit attempt must succeed")
+
+	// Drain: every submitted job must flow through the handler exactly once.
+	s.Require().Eventually(func() bool {
+		return processed.Load() == int64(totalJobs)
+	}, 20*time.Second, 30*time.Millisecond, "pool did not drain all producer work")
+
+	// Sum identity catches duplicates or losses across the three disjoint
+	// value ranges the producers emit.
+	var expected int64
+	for i := 1; i <= requestJobs; i++ {
+		expected += int64(i)
+	}
+	for i := 1; i <= tickerJobs; i++ {
+		expected += int64(1000 + i)
+	}
+	for i := 1; i <= batchJobs; i++ {
+		expected += int64(2000 + i)
+	}
+	s.Require().Equal(expected, sum.Load())
+
+	// Events cross-check the handler-side counters.
+	s.Require().Equal(int64(totalJobs), events.jobOk.Load())
+	s.Require().Zero(events.jobFailed.Load())
+
+	// The pool must have scaled above MinSize at least once while the
+	// producers were pushing load.
+	s.Require().Greater(
+		events.started.Load(), int64(minWorkers),
+		"expected autoscaler to start more workers than MinSize under load",
+	)
 }

@@ -47,6 +47,16 @@ Simple Go library for managing asynchronous tasks with context-aware execution, 
 
 - **Semaphore**: Lock-free, channel-based semaphore with multiple acquisition modes for custom concurrency control
 
+### WorkerPool Package (`pkg/workerpool`)
+
+- **Two Modes**: `FixedSize` pre-subscribes all workers on startup; `AutoScale` keeps `MinSize` workers warm and Joins more (up to `MaxSize`) under load, Leaving idle workers after `IdleTimeout`
+- **Claims Dispatcher**: Workers advertise availability on a shared buffered channel — no per-submit scan, no queue-per-worker fan-out
+- **Generic over Job Type**: `WorkerPool[T]` — no `interface{}`, no boxing, handlers type-checked at compile time
+- **Panic Recovery**: Handler panics are caught, surfaced as `ErrWorkerPanic` via `Events.JobFailed`, and the worker keeps serving
+- **Rate Limiting**: Token-bucket limiter (`golang.org/x/time/rate`) caps submissions per second into the backlog
+- **Pluggable Events**: `Events[T]` interface observes every lifecycle transition (worker start/stop, subscribe, job ok/failed, leave timeout); embed `NoopEvents[T]` to override only the hooks you care about
+- **Graceful Shutdown**: `Close()` is idempotent via `sync.Once`, cancels in-flight work via context, and rejects post-close submissions with `ErrPoolShutdown`
+
 ## Installation
 
 go 1.25 or later
@@ -425,6 +435,103 @@ defer sem.Release()
 // Do work...
 ```
 
+### Worker Pool — Fixed Size
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "time"
+
+    "github.com/barnowlsnest/go-asynctasklib/pkg/workerpool"
+)
+
+func main() {
+    handler := func(_ context.Context, job *int) error {
+        fmt.Printf("processing %d\n", *job)
+        return nil
+    }
+
+    pool, err := workerpool.New(context.Background(),
+        workerpool.WithConfig[int](&workerpool.Config{
+            Mode: workerpool.ModeFixedSize,
+            ClaimsConfig: workerpool.ClaimsConfig{
+                Size:          8,
+                SubmitTimeout: 2 * time.Second,
+            },
+            Backlog:   100,
+            RateLimit: 1000, // max submissions per second
+        }),
+        workerpool.WithHandler(handler),
+    )
+    if err != nil {
+        panic(err)
+    }
+    defer pool.Close()
+
+    for i := 1; i <= 20; i++ {
+        job := i
+        if err := pool.Submit(&job); err != nil {
+            fmt.Printf("submit %d: %v\n", i, err)
+        }
+    }
+}
+```
+
+### Worker Pool — Auto-Scaling
+
+`AutoScale` keeps a warm minimum of workers subscribed and adds more under
+load (up to `MaxSize`). Workers that idle beyond `IdleTimeout` are removed
+and re-added the next time the backlog grows. Use `pool.JoinedCount()` to
+observe the current number of subscribed workers.
+
+```go
+pool, err := workerpool.New(ctx,
+    workerpool.WithConfig[int](&workerpool.Config{
+        Mode:          workerpool.ModeAutoScale,
+        MinSize:       2,
+        MaxSize:       16,
+        IdleTimeout:   5 * time.Second,
+        ScaleInterval: 100 * time.Millisecond,
+        ClaimsConfig: workerpool.ClaimsConfig{
+            SubmitTimeout: 3 * time.Second,
+        },
+        Backlog:   500,
+        RateLimit: 2000,
+    }),
+    workerpool.WithHandler(handler),
+)
+if err != nil {
+    panic(err)
+}
+defer pool.Close()
+```
+
+### Worker Pool — Observing Events
+
+Pass an `Events[T]` implementation to observe worker lifecycle and job
+outcomes. Embed `NoopEvents[T]` to override only the hooks you care about.
+
+```go
+type metrics struct {
+    workerpool.NoopEvents[int]
+    ok   atomic.Int64
+    fail atomic.Int64
+}
+
+func (m *metrics) JobOk(_ *int)              { m.ok.Add(1) }
+func (m *metrics) JobFailed(_ error, _ *int) { m.fail.Add(1) }
+
+m := &metrics{}
+pool, err := workerpool.New(ctx,
+    workerpool.WithConfig[int](cfg),
+    workerpool.WithHandler(handler),
+    workerpool.WithEvents[int](m),
+)
+```
+
 ## API Reference
 
 ### Task Definition
@@ -547,6 +654,70 @@ def, err := task.NewBuilder(opts...).Build()
 - `TryAcquireWithTimeout(duration) bool` - Timeout-based acquire
 - `Release()` - Release a slot
 - `Limit()`, `Available()`, `Acquired()` - Query semaphore state
+
+### WorkerPool (`pkg/workerpool`)
+
+**Constructor:**
+
+- `workerpool.New[T](ctx, opts ...PoolOptionFunc[T]) (*WorkerPool[T], error)` — construct a pool; requires `WithConfig` and `WithHandler`
+
+**Options:**
+
+- `WithConfig[T](cfg *Config)` — pool configuration (mode, sizes, backlog, rate limit)
+- `WithHandler[T](fn HandlerFunc[T])` — job handler `func(ctx context.Context, job *T) error`
+- `WithEvents[T](events Events[T])` — lifecycle observer (defaults to `NoopEvents[T]`)
+
+**Pool Methods:**
+
+- `Submit(job *T) error` — enqueue a job into the backlog
+- `Close()` — idempotent shutdown; cancels in-flight work and rejects new submissions
+- `JoinedCount() int` — number of workers currently subscribed to the Claims dispatcher
+- `Err() error` — last fatal dispatch error, if any
+
+**Config:**
+
+```go
+type Config struct {
+    ClaimsConfig                 // Size, SubmitTimeout, SubmitBackoff, Name
+    Mode          Mode           // ModeFixedSize or ModeAutoScale
+    MinSize       int            // AutoScale: minimum joined workers (warm pool)
+    MaxSize       int            // AutoScale: upper bound on joined workers
+    IdleTimeout   time.Duration  // AutoScale: leave threshold (default 5s)
+    ScaleInterval time.Duration  // AutoScale: scaler period (default 100ms)
+    RateLimit     float64        // max Submit rate per second (default 750)
+    Backlog       int            // buffered job queue size (default 1000)
+}
+```
+
+**Errors:**
+
+- `ErrInvalidPool` — construction failure (missing handler/config, nil or canceled context)
+- `ErrPoolShutdown` — `Submit` called after `Close`
+- `ErrNilJob` — `Submit(nil)`
+- `ErrSubmitTimeout` — backlog full for longer than `SubmitTimeout`
+- `ErrNoWorkers` — Claims dispatcher has no subscribers (AutoScale nudges the scaler and retries)
+- `ErrWorkerPanic` — handler panic caught by the worker, surfaced via `Events.JobFailed`
+- `ErrDispatcherClosed` — Claims channel closed while `Submit` was in progress
+- `ErrMaxPoolSize` — Subscribe called when Claims is at `Size` capacity
+
+**Events[T] interface:**
+
+```go
+type Events[T any] interface {
+    WorkerStarted(id uint64)
+    WorkerStopped(id uint64)
+    Subscribed(id uint64)
+    SubscribeFailed(err error, id uint64)
+    Unsubscribed(id uint64)
+    UnsubscribeFailed(err error, id uint64)
+    LeaveTimeout(id uint64, timeout time.Duration)
+    JobOk(job *T)
+    JobFailed(err error, job *T)
+}
+```
+
+`NoopEvents[T]` implements every method as a no-op so custom observers can
+embed it and override only the hooks they care about.
 
 ## Architecture
 
