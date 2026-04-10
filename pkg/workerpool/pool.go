@@ -12,32 +12,67 @@ import (
 
 var ErrInvalidPool = errors.New("invalid pool configuration")
 
+const (
+	defaultRate    = 750
+	defaultBacklog = 1000
+)
+
 type (
 	WorkerPool[T any] struct {
-		once    sync.Once
-		wg      sync.WaitGroup
-		reject  atomic.Bool
-		backlog chan *T
-		ctx     func() context.Context
-		cancel  context.CancelFunc
-		limiter *rate.Limiter
-		cfg     *Config
-		workers *Claims[T]
+		once             sync.Once
+		wg               sync.WaitGroup
+		reject           atomic.Bool
+		backlog          chan *T
+		workers          map[uint64]*Worker[T]
+		ctx              func() context.Context
+		cancel           context.CancelFunc
+		limiter          *rate.Limiter
+		cfg              *Config
+		availableWorkers *Claims[T]
+		handler          HandlerFunc[T]
+		events           Events[T]
 	}
 
 	Config struct {
-		RateLimit     float64
-		SubmitTimeout time.Duration
-		Backlog       int
-		Size          int
+		ClaimsConfig
+		RateLimit   float64
+		Backlog     int
+		IdleTimeout time.Duration
 	}
+
+	PoolOptionFunc[T any] func(*WorkerPool[T])
 )
 
-func New[T any](ctx context.Context, workers *Claims[T], cfg *Config) (*WorkerPool[T], error) {
-	if cfg == nil {
-		return nil, errors.Join(ErrInvalidPool, errors.New("nil config"))
+func (cfg *Config) applyDefaults() {
+	cfg.ClaimsConfig.applyDefaults()
+	if cfg.RateLimit <= 0 {
+		cfg.RateLimit = defaultRate
 	}
 
+	if cfg.Backlog <= 0 {
+		cfg.Backlog = defaultBacklog
+	}
+}
+
+func WithConfig[T any](cfg *Config) PoolOptionFunc[T] {
+	return func(pool *WorkerPool[T]) {
+		pool.cfg = cfg
+	}
+}
+
+func WithHandler[T any](handler HandlerFunc[T]) PoolOptionFunc[T] {
+	return func(pool *WorkerPool[T]) {
+		pool.handler = handler
+	}
+}
+
+func WithEvents[T any](events Events[T]) PoolOptionFunc[T] {
+	return func(pool *WorkerPool[T]) {
+		pool.events = events
+	}
+}
+
+func New[T any](ctx context.Context, opts ...PoolOptionFunc[T]) (*WorkerPool[T], error) {
 	if ctx == nil {
 		return nil, errors.Join(ErrInvalidPool, errors.New("nil context"))
 	}
@@ -48,17 +83,51 @@ func New[T any](ctx context.Context, workers *Claims[T], cfg *Config) (*WorkerPo
 
 	poolCtx, cancel := context.WithCancel(ctx)
 	pool := &WorkerPool[T]{
-		workers: workers,
-		cfg:     cfg,
-		backlog: make(chan *T, cfg.Backlog),
-		ctx:     func() context.Context { return poolCtx },
-		cancel:  cancel,
-		limiter: rate.NewLimiter(rate.Limit(cfg.RateLimit), cfg.Size),
+		ctx:    func() context.Context { return poolCtx },
+		cancel: cancel,
 	}
+
+	for _, opt := range opts {
+		opt(pool)
+	}
+
+	if pool.handler == nil {
+		return nil, errors.Join(ErrInvalidPool, errors.New("nil handler"))
+	}
+
+	if pool.cfg == nil {
+		return nil, errors.Join(ErrInvalidPool, errors.New("nil config"))
+	}
+
+	if pool.events == nil {
+		pool.events = NewNoopEvents[T]()
+	}
+
+	pool.cfg.applyDefaults()
+	workClaims, err := NewClaims[T](&pool.cfg.ClaimsConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	pool.availableWorkers = workClaims
+	pool.workers = make(map[uint64]*Worker[T], pool.cfg.Size)
+	pool.backlog = make(chan *T, pool.cfg.Backlog)
+	pool.limiter = rate.NewLimiter(rate.Limit(pool.cfg.RateLimit), pool.cfg.Size)
 
 	pool.wg.Go(pool.listen)
 
 	return pool, nil
+}
+
+func (pool *WorkerPool[T]) init() error {
+	var err error
+	for i := range pool.cfg.Size {
+		if pool.workers[uint64(i+1)], err = NewWorker[T](&WorkerConfig[T]{}); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (pool *WorkerPool[T]) Close() {
@@ -125,7 +194,7 @@ func (pool *WorkerPool[T]) submit(job *T) error {
 			return pool.ctx().Err()
 		case <-time.After(pool.cfg.SubmitTimeout):
 			return ErrSubmitTimeout
-		case worker, ok := <-pool.workers.Claims():
+		case worker, ok := <-pool.availableWorkers.Claims():
 			if !ok {
 				return ErrDispatcherClosed
 			}

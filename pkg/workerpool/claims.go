@@ -48,11 +48,7 @@ type (
 	}
 )
 
-func NewClaims[T any](cfg *ClaimsConfig) (*Claims[T], error) {
-	if cfg == nil {
-		return nil, fmt.Errorf("%w: nil claims config", ErrNil)
-	}
-
+func (cfg *ClaimsConfig) applyDefaults() {
 	if cfg.Size <= 0 {
 		cfg.Size = runtime.NumCPU()
 	}
@@ -68,6 +64,14 @@ func NewClaims[T any](cfg *ClaimsConfig) (*Claims[T], error) {
 	if cfg.SubmitAttemptsPerSec <= 0 {
 		cfg.SubmitAttemptsPerSec = defaultSubmitAttemptsPerSec
 	}
+}
+
+func NewClaims[T any](cfg *ClaimsConfig) (*Claims[T], error) {
+	if cfg == nil {
+		return nil, fmt.Errorf("%w: nil claims config", ErrNil)
+	}
+
+	cfg.applyDefaults()
 
 	return &Claims[T]{
 		cfg:         cfg,

@@ -37,20 +37,25 @@ func (m *poolEventsMock) LeaveTimeout(id uint64, d time.Duration) { m.Called(id,
 
 // --------------- helpers ---------------
 
-func (s *PoolTestSuite) newClaims(size int) *Claims[int] {
-	s.T().Helper()
-	c, err := NewClaims[int](&ClaimsConfig{Size: size})
-	s.Require().NoError(err)
-	return c
-}
-
 func (s *PoolTestSuite) defaultPoolConfig() *Config {
 	return &Config{
-		Size:          10,
-		Backlog:       10,
-		RateLimit:     10000,
-		SubmitTimeout: time.Second,
+		ClaimsConfig: ClaimsConfig{
+			Size:          10,
+			SubmitTimeout: time.Second,
+		},
+		Backlog:   10,
+		RateLimit: 10000,
 	}
+}
+
+func (s *PoolTestSuite) newPool(ctx context.Context, cfg *Config, handler HandlerFunc[int]) *WorkerPool[int] {
+	s.T().Helper()
+	pool, err := New[int](ctx,
+		WithConfig[int](cfg),
+		WithHandler[int](handler),
+	)
+	s.Require().NoError(err)
+	return pool
 }
 
 // --------------- TestNew ---------------
@@ -58,43 +63,59 @@ func (s *PoolTestSuite) defaultPoolConfig() *Config {
 func (s *PoolTestSuite) TestNew() {
 	canceledCtx, cancel := context.WithCancel(context.Background())
 	cancel()
-	claims := s.newClaims(1)
+
+	validOpts := func() []PoolOptionFunc[int] {
+		return []PoolOptionFunc[int]{
+			WithConfig[int](s.defaultPoolConfig()),
+			WithHandler[int](NoopHandler[int]),
+		}
+	}
 
 	testCases := []struct {
 		title       string
 		ctx         context.Context
-		cfg         *Config
+		opts        []PoolOptionFunc[int]
 		expectedErr error
 	}{
 		{
-			title:       "nil config",
-			ctx:         s.T().Context(),
-			cfg:         nil,
-			expectedErr: ErrInvalidPool,
-		},
-		{
 			title:       "nil context",
 			ctx:         nil,
-			cfg:         s.defaultPoolConfig(),
+			opts:        validOpts(),
 			expectedErr: ErrInvalidPool,
 		},
 		{
 			title:       "canceled context",
 			ctx:         canceledCtx,
-			cfg:         s.defaultPoolConfig(),
+			opts:        validOpts(),
 			expectedErr: context.Canceled,
+		},
+		{
+			title: "nil handler",
+			ctx:   s.T().Context(),
+			opts: []PoolOptionFunc[int]{
+				WithConfig[int](s.defaultPoolConfig()),
+			},
+			expectedErr: ErrInvalidPool,
+		},
+		{
+			title: "nil config",
+			ctx:   s.T().Context(),
+			opts: []PoolOptionFunc[int]{
+				WithHandler[int](NoopHandler[int]),
+			},
+			expectedErr: ErrInvalidPool,
 		},
 		{
 			title:       "valid",
 			ctx:         s.T().Context(),
-			cfg:         s.defaultPoolConfig(),
+			opts:        validOpts(),
 			expectedErr: nil,
 		},
 	}
 
 	for _, tc := range testCases {
 		s.Run(tc.title, func() {
-			pool, err := New[int](tc.ctx, claims, tc.cfg)
+			pool, err := New[int](tc.ctx, tc.opts...)
 			switch tc.expectedErr {
 			case nil:
 				s.Require().NoError(err)
@@ -123,9 +144,7 @@ func (s *PoolTestSuite) TestSubmit_Validation() {
 		},
 	}
 
-	claims := s.newClaims(1)
-	pool, err := New[int](s.T().Context(), claims, s.defaultPoolConfig())
-	s.Require().NoError(err)
+	pool := s.newPool(s.T().Context(), s.defaultPoolConfig(), NoopHandler[int])
 	defer pool.Close()
 
 	for _, tc := range testCases {
@@ -138,9 +157,7 @@ func (s *PoolTestSuite) TestSubmit_Validation() {
 // --------------- TestSubmit_PoolShutdown ---------------
 
 func (s *PoolTestSuite) TestSubmit_PoolShutdown() {
-	claims := s.newClaims(1)
-	pool, err := New[int](s.T().Context(), claims, s.defaultPoolConfig())
-	s.Require().NoError(err)
+	pool := s.newPool(s.T().Context(), s.defaultPoolConfig(), NoopHandler[int])
 	pool.Close()
 
 	job := 1
@@ -175,7 +192,16 @@ func (s *PoolTestSuite) TestSubmit_Overflow() {
 	for _, tc := range testCases {
 		s.Run(tc.title, func() {
 			ctx := s.T().Context()
-			claims := s.newClaims(max(tc.workerCount, 1))
+			cfg := &Config{
+				ClaimsConfig: ClaimsConfig{
+					Size:          max(tc.workerCount, 1),
+					SubmitTimeout: 100 * time.Millisecond,
+				},
+				Backlog:   tc.backlog,
+				RateLimit: 100000,
+			}
+			pool := s.newPool(ctx, cfg, NoopHandler[int])
+			defer pool.Close()
 
 			blockCh := make(chan struct{})
 			defer close(blockCh)
@@ -192,18 +218,8 @@ func (s *PoolTestSuite) TestSubmit_Overflow() {
 				}
 				w, err := NewWorker[int](&WorkerConfig[int]{ID: uint64(i + 1), HandlerFunc: handler})
 				s.Require().NoError(err)
-				s.Require().NoError(w.Join(ctx, claims))
+				s.Require().NoError(w.Join(ctx, pool.availableWorkers))
 			}
-
-			cfg := &Config{
-				Size:          100,
-				Backlog:       tc.backlog,
-				RateLimit:     100000,
-				SubmitTimeout: 100 * time.Millisecond,
-			}
-			pool, err := New[int](ctx, claims, cfg)
-			s.Require().NoError(err)
-			defer pool.Close()
 
 			// Keep the single worker busy so it stops advertising on claims
 			if tc.blockWorker && tc.workerCount > 0 {
@@ -239,15 +255,15 @@ func (s *PoolTestSuite) TestSubmit_Overflow() {
 
 func (s *PoolTestSuite) TestSubmit_ContextCanceled() {
 	ctx, cancel := context.WithCancel(s.T().Context())
-	claims := s.newClaims(1)
 	cfg := &Config{
-		Size:          100,
-		Backlog:       1,
-		RateLimit:     100000,
-		SubmitTimeout: 10 * time.Second,
+		ClaimsConfig: ClaimsConfig{
+			Size:          1,
+			SubmitTimeout: 10 * time.Second,
+		},
+		Backlog:   1,
+		RateLimit: 100000,
 	}
-	pool, err := New[int](ctx, claims, cfg)
-	s.Require().NoError(err)
+	pool := s.newPool(ctx, cfg, NoopHandler[int])
 	defer pool.Close()
 
 	// Fill pipeline: job1 → backlog → listen drains and blocks in submit (no workers)
@@ -279,7 +295,6 @@ func (s *PoolTestSuite) TestSubmit_ContextCanceled() {
 
 func (s *PoolTestSuite) TestSubmit_HappyPath() {
 	ctx := s.T().Context()
-	claims := s.newClaims(2)
 
 	arrivals := make(chan int, 10)
 	handler := func(_ context.Context, job *int) error {
@@ -294,22 +309,28 @@ func (s *PoolTestSuite) TestSubmit_HappyPath() {
 	events.On("Unsubscribed", mock.AnythingOfType("uint64")).Return()
 	events.On("JobOk", mock.AnythingOfType("*int")).Return()
 
+	cfg := &Config{
+		ClaimsConfig: ClaimsConfig{
+			Size:          2,
+			SubmitTimeout: time.Second,
+		},
+		Backlog:   10,
+		RateLimit: 10000,
+	}
+	pool, err := New[int](ctx,
+		WithConfig[int](cfg),
+		WithHandler[int](handler),
+		WithEvents[int](events),
+	)
+	s.Require().NoError(err)
+
 	workers := make([]*Worker[int], 0, 2)
 	for i := uint64(1); i <= 2; i++ {
-		w, err := NewWorker[int](&WorkerConfig[int]{ID: i, HandlerFunc: handler, Events: events})
-		s.Require().NoError(err)
-		s.Require().NoError(w.Join(ctx, claims))
+		w, wErr := NewWorker[int](&WorkerConfig[int]{ID: i, HandlerFunc: handler, Events: events})
+		s.Require().NoError(wErr)
+		s.Require().NoError(w.Join(ctx, pool.availableWorkers))
 		workers = append(workers, w)
 	}
-
-	cfg := &Config{
-		Size:          10,
-		Backlog:       10,
-		RateLimit:     10000,
-		SubmitTimeout: time.Second,
-	}
-	pool, err := New[int](ctx, claims, cfg)
-	s.Require().NoError(err)
 
 	const jobCount = 5
 	for i := 1; i <= jobCount; i++ {
@@ -331,10 +352,10 @@ func (s *PoolTestSuite) TestSubmit_HappyPath() {
 		s.Require().True(received[i], "job %d not received", i)
 	}
 
-	pool.Close()
 	for _, w := range workers {
-		s.Require().NoError(w.Leave(claims, time.Second))
+		s.Require().NoError(w.Leave(pool.availableWorkers, time.Second))
 	}
+	pool.Close()
 
 	events.AssertNumberOfCalls(s.T(), "JobOk", jobCount)
 }
