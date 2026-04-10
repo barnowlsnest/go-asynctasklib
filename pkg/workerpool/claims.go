@@ -10,10 +10,18 @@ import (
 )
 
 var (
-	ErrMaxPoolSize      = errors.New("max pool size exceeded")
+	// ErrMaxPoolSize is returned from Claims.Subscribe when the number of
+	// subscribers would exceed ClaimsConfig.Size.
+	ErrMaxPoolSize = errors.New("max pool size exceeded")
+	// ErrDispatcherClosed is returned from Claims.Submit when the inbound
+	// claims channel has been closed.
 	ErrDispatcherClosed = errors.New("dispatcher closed")
-	ErrNoWorkers        = errors.New("no active workers")
-	ErrSubmitTimeout    = errors.New("worker input write timeout")
+	// ErrNoWorkers is returned from Claims.Submit when SubmitTimeout
+	// elapses while no workers are subscribed to the dispatcher.
+	ErrNoWorkers = errors.New("no active workers")
+	// ErrSubmitTimeout is returned from Claims.Submit when workers are
+	// subscribed but none of them accepted the job within SubmitTimeout.
+	ErrSubmitTimeout = errors.New("worker input write timeout")
 )
 
 const (
@@ -24,6 +32,10 @@ const (
 )
 
 type (
+	// Claims is the lock-coordinated fan-out dispatcher that backs a
+	// WorkerPool. Workers Subscribe to advertise availability by pushing
+	// their input channel onto claimsCh, and the pool (or any caller)
+	// invokes Submit to hand a job to the next advertised worker.
 	Claims[T any] struct {
 		mu          sync.Mutex
 		cfg         *ClaimsConfig
@@ -31,20 +43,39 @@ type (
 		claimsCh    chan *Claim[T]
 	}
 
+	// ClaimsConfig controls Claims construction and Submit behavior.
+	// Zero-valued fields fall back to package defaults via applyDefaults.
 	ClaimsConfig struct {
-		Name                 string
-		BackoffFactor        float64
-		Size                 int
+		// Name is an optional label surfaced via Claims.Name and the
+		// Worker.String debug format.
+		Name string
+		// BackoffFactor multiplies SubmitBackoff on every retry of a
+		// stale claim. Must be in (0, 1]; values outside that range
+		// reset to the package default.
+		BackoffFactor float64
+		// Size is the maximum number of workers that may Subscribe. It
+		// also sizes the buffered claimsCh so each worker can park an
+		// advertisement without contention. Defaults to runtime.NumCPU.
+		Size int
+		// SubmitAttemptsPerSec caps the retry rate for stale claims.
 		SubmitAttemptsPerSec int
-		SubmitBackoff        time.Duration
-		SubmitTimeout        time.Duration
+		// SubmitBackoff is the initial backoff between retries after a
+		// stale claim is pulled.
+		SubmitBackoff time.Duration
+		// SubmitTimeout bounds how long Submit will wait for a worker to
+		// accept a job before returning ErrSubmitTimeout or ErrNoWorkers.
+		SubmitTimeout time.Duration
 	}
 
+	// Claim is a worker's self-advertisement: an (id, input) pair that
+	// tells the dispatcher which worker owns the input channel.
 	Claim[T any] struct {
 		id    uint64
 		input chan *T
 	}
 
+	// WorkerCloser is the minimum interface a Claims subscriber must
+	// satisfy: it must expose a stable numeric identity.
 	WorkerCloser[T any] interface {
 		ID() uint64
 	}
@@ -72,6 +103,9 @@ func (cfg *ClaimsConfig) applyDefaults() {
 	}
 }
 
+// NewClaims constructs a Claims dispatcher from cfg. It returns ErrNil
+// if cfg is nil. Missing fields on cfg are populated with package
+// defaults before construction.
 func NewClaims[T any](cfg *ClaimsConfig) (*Claims[T], error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("%w: nil claims config", ErrNil)
@@ -86,6 +120,10 @@ func NewClaims[T any](cfg *ClaimsConfig) (*Claims[T], error) {
 	}, nil
 }
 
+// Subscribe registers w as an active worker. It returns ErrInvalidWorker
+// if w is nil, or ErrMaxPoolSize if the dispatcher already has Size
+// subscribers. Subscribing the same ID twice overwrites the previous
+// entry and is not treated as an error.
 func (c *Claims[T]) Subscribe(w WorkerCloser[T]) error {
 	if w == nil {
 		return ErrInvalidWorker
@@ -103,6 +141,8 @@ func (c *Claims[T]) Subscribe(w WorkerCloser[T]) error {
 	return nil
 }
 
+// Unsubscribe removes w from the active worker set. It is a no-op (and
+// returns nil) if w is nil or was not previously subscribed.
 func (c *Claims[T]) Unsubscribe(w WorkerCloser[T]) error {
 	if w == nil {
 		return nil
@@ -121,6 +161,16 @@ func (c *Claims[T]) Unsubscribe(w WorkerCloser[T]) error {
 	return nil
 }
 
+// Submit hands job to the next advertised worker. It blocks until a
+// worker accepts the job, ctx is canceled, or SubmitTimeout elapses.
+//
+// Submit returns:
+//   - ctx.Err() if ctx is canceled or deadline-exceeded
+//   - ErrDispatcherClosed if the inbound claims channel is closed
+//   - ErrNoWorkers if SubmitTimeout elapses and no workers are subscribed
+//   - ErrSubmitTimeout if SubmitTimeout elapses but workers are subscribed
+//     (their input channels were all unresponsive: this is the "stale
+//     claim" backoff path)
 func (c *Claims[T]) Submit(ctx context.Context, job *T) error {
 	begin := time.Now()
 	backoff := c.cfg.SubmitBackoff
@@ -175,6 +225,7 @@ func (c *Claims[T]) Submit(ctx context.Context, job *T) error {
 	}
 }
 
+// Name returns the optional label set via ClaimsConfig.Name.
 func (c *Claims[T]) Name() string {
 	return c.cfg.Name
 }
@@ -185,6 +236,7 @@ func (c *Claims[T]) Claims() chan *Claim[T] {
 	return c.claimsCh
 }
 
+// Size returns the configured maximum number of subscribers.
 func (c *Claims[T]) Size() int {
 	return c.cfg.Size
 }
