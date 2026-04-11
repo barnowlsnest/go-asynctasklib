@@ -264,6 +264,8 @@ func (s *EventsTestSuite) TestWorkerLifecycleOrder() {
 			if l.workerStopped == nil {
 				l.workerStopped = &seq
 			}
+		default:
+			s.FailNow("unhandled default case: %v", r.kind)
 		}
 	}
 

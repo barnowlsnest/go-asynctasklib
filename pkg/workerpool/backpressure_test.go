@@ -17,10 +17,10 @@ import (
 //  2. When the backlog is saturated, SubmitContext is observably bounded by
 //     the caller's context — callers can escape via ctx cancelation rather
 //     than being parked forever.
-//  3. FixedSize mode drops jobs silently when dispatch exceeds SubmitTimeout.
-//     No Events.JobFailed fires, and Err() stays nil. This is the documented
-//     trade-off: "jobs still queued when Close is called are dropped" and the
-//     in-flight dispatch timeout uses the same drop semantics.
+//  3. FixedSize mode surfaces dispatch-timeout drops via Events.JobFailed so
+//     callers can observe every lost job. Err() stays nil because transient
+//     ErrSubmitTimeout is not a fatal dispatcher state — that contract is
+//     preserved — but the drops themselves are no longer silent.
 type BackpressureTestSuite struct {
 	suite.Suite
 }
@@ -147,22 +147,15 @@ type dropTrackingEvents struct {
 func (d *dropTrackingEvents) JobOk(_ *int)              { d.ok.Add(1) }
 func (d *dropTrackingEvents) JobFailed(_ error, _ *int) { d.failed.Add(1) }
 
-// TestFixedSize_DropsOnDispatchTimeoutSilently is the contract test for
-// pool.go's dispatch() drop path:
-//
-//	if errors.Is(err, ErrSubmitTimeout) {
-//	    // Preserve the drop-on-timeout behavior for FixedSize mode: the
-//	    // pool keeps running, the job is lost.
-//	    return
-//	}
-//
-// We wedge the only worker in a blocking handler, submit enough follow-up
-// jobs to force dispatch to time out on each of them, and assert:
-//  1. No Events.JobOk / JobFailed fires for the dropped jobs.
-//  2. pool.Err() stays nil — dispatch timeouts are not fatal in FixedSize.
-//  3. The pool is still live: after releasing the blocked worker a fresh
-//     submit goes through normally.
-func (s *BackpressureTestSuite) TestFixedSize_DropsOnDispatchTimeoutSilently() {
+// TestFixedSize_DropsOnDispatchTimeoutAreObservable is the contract test
+// for pool.go's dispatch() drop path. A single worker is wedged in a
+// blocking handler; follow-up jobs are pulled by listen(), dispatched,
+// retried up to maxDispatchRetries, and finally dropped. Every dropped
+// job must fire Events.JobFailed so callers have an observability hook.
+// Err() stays nil because ErrSubmitTimeout is a transient dispatch error,
+// not a fatal dispatcher state, and the Err() contract remains reserved
+// for fatals like ErrDispatcherClosed.
+func (s *BackpressureTestSuite) TestFixedSize_DropsOnDispatchTimeoutAreObservable() {
 	release := make(chan struct{})
 	defer close(release)
 
@@ -172,9 +165,11 @@ func (s *BackpressureTestSuite) TestFixedSize_DropsOnDispatchTimeoutSilently() {
 		if startedOnce.CompareAndSwap(false, true) {
 			close(started)
 		}
+		// Long fallback so the handler stays wedged for the entire test
+		// window. The handler only exits via defer close(release).
 		select {
 		case <-release:
-		case <-time.After(5 * time.Second):
+		case <-time.After(30 * time.Second):
 		}
 		return nil
 	}
@@ -182,12 +177,7 @@ func (s *BackpressureTestSuite) TestFixedSize_DropsOnDispatchTimeoutSilently() {
 	events := &dropTrackingEvents{}
 	pool, err := New[int](s.T().Context(),
 		WithConfig[int](&Config{
-			Mode: ModeFixedSize,
-			// SubmitTimeout is short so dispatch drops happen in test time,
-			// but long enough that the seed job does not race the worker's
-			// runLoop onto the stale-claim path (50ms was too tight under
-			// -race; 100ms matches what the other blocking-handler tests use).
-			// Same knob is used by Claims.Submit for its stale-claim wait.
+			Mode:         ModeFixedSize,
 			ClaimsConfig: ClaimsConfig{Size: 1, SubmitTimeout: 100 * time.Millisecond},
 			Backlog:      8,
 			RateLimit:    1_000_000,
@@ -198,28 +188,36 @@ func (s *BackpressureTestSuite) TestFixedSize_DropsOnDispatchTimeoutSilently() {
 	s.Require().NoError(err)
 	defer pool.Close()
 
-	// Seed job wedges the worker.
-	s.Require().NoError(pool.Submit(new(1)))
+	// Seed job wedges the worker. The payload is irrelevant (the handler
+	// ignores it) — we only need a non-nil *int for Submit.
+	s.Require().NoError(pool.Submit(new(int)))
 	select {
 	case <-started:
 	case <-time.After(2 * time.Second):
 		s.FailNow("seed job did not reach the handler — dispatch race?")
 	}
 
-	// Four follow-up jobs. listen() will pull each in turn and call
-	// dispatch(), which waits SubmitTimeout for the busy worker to accept,
-	// times out, and drops. None of these should fire an event.
-	for i := 2; i <= 5; i++ {
-		s.Require().NoError(pool.Submit(new(i)))
+	// `drops` follow-up jobs. listen() pulls each in turn and calls
+	// dispatch(), which runs the retry loop (maxDispatchRetries+1
+	// Claims.Submit attempts interleaved with fixedSizeRetryWait) then
+	// fires JobFailed for each. Per-drop cost ~1.1s, so 2 serialized
+	// drops need ~2.2s; 5s gives slack.
+	const drops = 2
+	for range drops {
+		s.Require().NoError(pool.Submit(new(int)))
 	}
 
-	// Allow time for four dispatch timeouts (4 * 100ms) plus slack.
-	time.Sleep(600 * time.Millisecond)
+	s.Require().Eventually(func() bool {
+		return events.failed.Load() >= int32(drops)
+	}, 5*time.Second, 20*time.Millisecond,
+		"dispatch did not surface drops via JobFailed: failed=%d, expected >=%d",
+		events.failed.Load(), drops)
 
+	// The seed is still wedged in its handler, so JobOk must stay at zero.
 	s.Require().Zero(events.ok.Load(),
-		"worker is blocked — no JobOk should have fired yet")
-	s.Require().Zero(events.failed.Load(),
-		"dropped-at-dispatch jobs must not fire JobFailed")
+		"worker is still blocked — no JobOk should have fired yet")
+	// Err() stays reserved for fatal dispatcher state; transient
+	// ErrSubmitTimeout drops must not poison it.
 	s.Require().NoError(pool.Err(),
 		"ErrSubmitTimeout is not a fatal pool error in FixedSize mode")
 }

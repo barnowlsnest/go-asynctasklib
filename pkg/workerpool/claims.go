@@ -169,17 +169,13 @@ func (c *Claims[T]) Unsubscribe(w WorkerCloser[T]) error {
 //   - ErrDispatcherClosed if the inbound claims channel is closed
 //   - ErrNoWorkers if SubmitTimeout elapses and no workers are subscribed
 //   - ErrSubmitTimeout if SubmitTimeout elapses but workers are subscribed
-//     (their input channels were all unresponsive: this is the "stale
-//     claim" backoff path)
+//     (their input channels were all unresponsive: scheduler-race window
+//     or workers busy inside handlers)
 func (c *Claims[T]) Submit(ctx context.Context, job *T) error {
-	begin := time.Now()
-	backoff := c.cfg.SubmitBackoff
-	maxBackoff := time.Second / time.Duration(c.cfg.SubmitAttemptsPerSec)
+	deadline := time.Now().Add(c.cfg.SubmitTimeout)
 	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(c.cfg.SubmitTimeout):
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
 			c.mu.Lock()
 			subs := len(c.subscribers)
 			c.mu.Unlock()
@@ -187,9 +183,41 @@ func (c *Claims[T]) Submit(ctx context.Context, job *T) error {
 				return ErrNoWorkers
 			}
 			return ErrSubmitTimeout
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(remaining):
+			continue
 		case worker, ok := <-c.claimsCh:
 			if !ok {
 				return ErrDispatcherClosed
+			}
+
+			// Subscribership check: Leave() unsubscribes BEFORE
+			// canceling the worker ctx, so a claim whose id is no
+			// longer in subscribers came from a torn-down worker.
+			// Drop the stale claim and pull the next one.
+			c.mu.Lock()
+			_, alive := c.subscribers[worker.id]
+			c.mu.Unlock()
+			if !alive {
+				continue
+			}
+
+			// Bounded wait for the live worker to enter its input
+			// read. If the runLoop hasn't yet reached `case job :=
+			// <-w.input` (scheduler latency — the race window that
+			// used to cause stale-claim drops), SubmitBackoff is
+			// the slack we give it before giving up and re-pulling
+			// from claimsCh.
+			sendWait := c.cfg.SubmitBackoff
+			if r := time.Until(deadline); r < sendWait {
+				sendWait = r
+			}
+			if sendWait <= 0 {
+				continue
 			}
 
 			select {
@@ -197,28 +225,7 @@ func (c *Claims[T]) Submit(ctx context.Context, job *T) error {
 				return ctx.Err()
 			case worker.input <- job:
 				return nil
-			default:
-				if time.Since(begin) >= c.cfg.SubmitTimeout {
-					c.mu.Lock()
-					subs := len(c.subscribers)
-					c.mu.Unlock()
-					if subs == 0 {
-						return ErrNoWorkers
-					}
-				}
-
-				remaining := c.cfg.SubmitTimeout - time.Since(begin)
-				sleep := backoff
-				if sleep > remaining {
-					sleep = remaining
-				}
-
-				time.Sleep(sleep)
-				backoff *= 2
-				if backoff > maxBackoff {
-					backoff = maxBackoff
-				}
-
+			case <-time.After(sendWait):
 				continue
 			}
 		}

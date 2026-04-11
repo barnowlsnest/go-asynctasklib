@@ -36,6 +36,7 @@ const (
 	defaultBacklog            = 1000
 	defaultIdleLeaveThreshold = 5 * time.Second
 	defaultScaleInterval      = 100 * time.Millisecond
+	fixedSizeRetryWait        = 100 * time.Millisecond
 	maxDispatchRetries        = 5
 )
 
@@ -407,9 +408,11 @@ func (pool *WorkerPool[T]) listen() {
 	}
 }
 
-// dispatch hands a job off to the Claims dispatcher. In AutoScale mode it
-// retries a bounded number of times on ErrSubmitTimeout / ErrNoWorkers,
-// nudging the scaler so it can spin up additional workers while we wait.
+// dispatch hands a job off to the Claims dispatcher. It retries a bounded
+// number of times on ErrSubmitTimeout / ErrNoWorkers regardless of mode;
+// in AutoScale mode each retry also nudges the scaler so a new worker can
+// spin up while we wait. If retries are exhausted the drop is surfaced via
+// Events.JobFailed so callers can observe it.
 func (pool *WorkerPool[T]) dispatch(job *T) {
 	for attempt := 0; ; attempt++ {
 		if err := pool.ctx().Err(); err != nil {
@@ -422,23 +425,31 @@ func (pool *WorkerPool[T]) dispatch(job *T) {
 		}
 
 		retriable := errors.Is(err, ErrSubmitTimeout) || errors.Is(err, ErrNoWorkers)
-		if pool.cfg.Mode == ModeAutoScale && retriable && attempt < maxDispatchRetries {
-			pool.requestScale()
+		if retriable && attempt < maxDispatchRetries {
+			// ScaleInterval is only meaningful in AutoScale; in
+			// FixedSize it is 0, so use a fixed wait to avoid a
+			// busy-loop.
+			retryWait := fixedSizeRetryWait
+			if pool.cfg.Mode == ModeAutoScale {
+				retryWait = pool.cfg.ScaleInterval
+				pool.requestScale()
+			}
 			select {
 			case <-pool.ctx().Done():
 				return
-			case <-time.After(pool.cfg.ScaleInterval):
+			case <-time.After(retryWait):
 			}
 			continue
 		}
 
-		if errors.Is(err, ErrSubmitTimeout) {
-			// Preserve the drop-on-timeout behavior for FixedSize mode: the
-			// pool keeps running, the job is lost.
-			return
+		// Retries exhausted, or a non-retriable error (e.g.
+		// ErrDispatcherClosed). Either way the job is lost — surface
+		// it via Events so callers have a hook. Err() stays reserved
+		// for fatal dispatcher errors per the documented contract.
+		pool.events.JobFailed(err, job)
+		if !retriable {
+			pool.err.Store(&err)
 		}
-
-		pool.err.Store(&err)
 		return
 	}
 }
