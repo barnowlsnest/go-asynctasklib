@@ -298,7 +298,10 @@ func (s *WorkerTestSuite) TestWorker_ShouldReceiveJob() {
 
 func (s *WorkerTestSuite) TestWorker_ShouldNotReceiveJobWhenLeft() {
 	ctx := s.T().Context()
-	arrivals, errs := make(chan *int), make(chan error)
+	// Buffered so the submit goroutines below can deposit their errors
+	// even if the assertion loop bails early — without buffering, each
+	// extra submitter would leak parked on a chan-send forever.
+	arrivals, errs := make(chan *int, 2), make(chan error, 2)
 	w := s.prepareTestWorker(resend(arrivals, errs))
 	cfgChannel := &ClaimsConfig{
 		SubmitTimeout: time.Second,
@@ -309,6 +312,10 @@ func (s *WorkerTestSuite) TestWorker_ShouldNotReceiveJobWhenLeft() {
 	s.Require().NoError(w.Join(ctx, jobs))
 	time.Sleep(time.Second)
 	s.Require().NoError(w.Leave(jobs, time.Second))
+
+	// After Leave there are no subscribers, so each Submit should park for
+	// SubmitTimeout and then return ErrNoWorkers. We launch two submitters
+	// concurrently and assert *both* see the failure.
 	job1, job2 := new(1), new(2)
 	var wg sync.WaitGroup
 	wg.Go(func() {
@@ -317,21 +324,15 @@ func (s *WorkerTestSuite) TestWorker_ShouldNotReceiveJobWhenLeft() {
 	wg.Go(func() {
 		errs <- jobs.Submit(ctx, job2)
 	})
+	wg.Wait()
 
-	go func() {
-		wg.Wait()
-		close(arrivals)
-	}()
-
-	select {
-	case <-time.After(3 * time.Second):
-		s.FailNow("timeout")
-	case _, ok := <-arrivals:
-		if !ok {
-			return
+	for range 2 {
+		select {
+		case err := <-errs:
+			s.Require().ErrorContains(err, ErrNoWorkers.Error())
+		case <-time.After(3 * time.Second):
+			s.FailNow("timeout waiting for submit failure")
 		}
-	case err := <-errs:
-		s.Require().ErrorContains(err, ErrNoWorkers.Error())
 	}
 }
 
