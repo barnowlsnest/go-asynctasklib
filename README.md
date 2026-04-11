@@ -669,7 +669,8 @@ def, err := task.NewBuilder(opts...).Build()
 
 **Pool Methods:**
 
-- `Submit(job *T) error` — enqueue a job into the backlog
+- `Submit(job *T) error` — enqueue a job into the backlog; convenience wrapper around `SubmitContext` with a background context
+- `SubmitContext(ctx context.Context, job *T) error` — enqueue a job honoring both the caller's `ctx` and the pool's lifecycle context. Returns `ctx.Err()` if the caller cancels first, `ErrPoolShutdown` if the pool cancels first (pool wins on ties), `ErrSubmitTimeout` if the backlog stays full past `SubmitTimeout`
 - `Close()` — idempotent shutdown; cancels in-flight work and rejects new submissions
 - `JoinedCount() int` — number of workers currently subscribed to the Claims dispatcher
 - `Err() error` — last fatal dispatch error, if any
@@ -692,8 +693,9 @@ type Config struct {
 **Errors:**
 
 - `ErrInvalidPool` — construction failure (missing handler/config, nil or canceled context)
-- `ErrPoolShutdown` — `Submit` called after `Close`
-- `ErrNilJob` — `Submit(nil)`
+- `ErrPoolShutdown` — `Submit` / `SubmitContext` called after `Close`, or the pool's lifecycle context was canceled while waiting
+- `ErrNilCtx` — `SubmitContext(nil, ...)`
+- `ErrNilJob` — `Submit(nil)` or `SubmitContext(ctx, nil)`
 - `ErrSubmitTimeout` — backlog full for longer than `SubmitTimeout`
 - `ErrNoWorkers` — Claims dispatcher has no subscribers (AutoScale nudges the scaler and retries)
 - `ErrWorkerPanic` — handler panic caught by the worker, surfaced via `Events.JobFailed`

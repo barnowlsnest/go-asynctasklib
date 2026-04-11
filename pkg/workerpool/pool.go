@@ -295,18 +295,42 @@ func (pool *WorkerPool[T]) Close() {
 	})
 }
 
-// Submit enqueues job onto the pool's backlog. It blocks until space is
-// available, the pool context is canceled, or Config.SubmitTimeout elapses.
+// Submit enqueues job onto the pool's backlog. It is a convenience wrapper
+// around [WorkerPool.SubmitContext] with a background caller context, and
+// exists so callers who do not need caller-side cancelation can avoid the
+// ceremony of threading a context.
 //
-// Submit returns:
+// See [WorkerPool.SubmitContext] for the full list of return values and
+// cancelation semantics.
+func (pool *WorkerPool[T]) Submit(job *T) error {
+	return pool.SubmitContext(context.Background(), job)
+}
+
+// SubmitContext enqueues job onto the pool's backlog, honoring both the
+// caller's ctx and the pool's own lifecycle context. It blocks until space
+// is available, one of the contexts is canceled, or Config.SubmitTimeout
+// elapses.
+//
+// SubmitContext returns:
+//   - ErrNilCtx if ctx is nil
 //   - ErrNilJob if job is nil
-//   - ErrPoolShutdown if Close has already been called
+//   - ErrPoolShutdown if Close has already been called, or the pool context
+//     is canceled while waiting
+//   - ctx.Err() if the caller's ctx is canceled while waiting
 //   - ErrSubmitTimeout if the backlog stays full for longer than SubmitTimeout
-//   - the context error if the pool context is canceled while waiting
+//
+// When both the caller ctx and the pool ctx fire simultaneously, pool
+// cancelation wins: the error is ErrPoolShutdown, so callers can reliably
+// use errors.Is(err, ErrPoolShutdown) to detect that the pool is gone.
 //
 // Once a job is on the backlog, delivery to a worker is asynchronous and
-// observable only via the Events hooks.
-func (pool *WorkerPool[T]) Submit(job *T) error {
+// observable only via the Events hooks; canceling ctx after SubmitContext
+// has returned nil does not recall the job.
+func (pool *WorkerPool[T]) SubmitContext(ctx context.Context, job *T) error {
+	if ctx == nil {
+		return ErrNilCtx
+	}
+
 	if job == nil {
 		return ErrNilJob
 	}
@@ -315,13 +339,34 @@ func (pool *WorkerPool[T]) Submit(job *T) error {
 		return ErrPoolShutdown
 	}
 
-	if err := pool.limiter.Wait(pool.ctx()); err != nil {
+	if err := ctx.Err(); err != nil {
 		return err
+	}
+
+	// Merge caller ctx with pool ctx for the limiter wait. AfterFunc is
+	// lazy: no goroutine runs on the happy path, only if the pool actually
+	// cancels while we're parked in Wait. stop() detaches the hook on
+	// return so the pool ctx does not retain us after SubmitContext exits.
+	waitCtx, cancelWait := context.WithCancel(ctx)
+	stop := context.AfterFunc(pool.ctx(), cancelWait)
+	defer stop()
+	defer cancelWait()
+
+	if err := pool.limiter.Wait(waitCtx); err != nil {
+		// waitCtx fired. Figure out which side was responsible so callers
+		// get a meaningful error instead of a generic context.Canceled.
+		if pool.ctx().Err() != nil {
+			return ErrPoolShutdown
+		}
+
+		return ctx.Err()
 	}
 
 	select {
 	case <-pool.ctx().Done():
-		return pool.ctx().Err()
+		return ErrPoolShutdown
+	case <-ctx.Done():
+		return ctx.Err()
 	case pool.backlog <- job:
 		return nil
 	case <-time.After(pool.cfg.SubmitTimeout):
