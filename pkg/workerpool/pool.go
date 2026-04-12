@@ -3,7 +3,6 @@ package workerpool
 import (
 	"context"
 	"errors"
-	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -13,9 +12,12 @@ import (
 
 // ErrInvalidPool is returned from New when the pool cannot be constructed
 // because a required option is missing or malformed.
-var ErrInvalidPool = errors.New("invalid pool configuration")
+var (
+	ErrInvalidPool        = errors.New("invalid pool configuration")
+	ErrMaxRetriesExceeded = errors.New("max retries exceeded")
+)
 
-// Mode selects how the pool manages its workers' Claims membership.
+// Mode selects how the pool manages its workers' claims membership.
 //
 //   - ModeFixedSize creates Size workers and Joins them all on startup.
 //     The set of subscribed workers is constant for the pool's lifetime.
@@ -32,58 +34,46 @@ const (
 )
 
 const (
-	defaultRate               = 750
-	defaultBacklog            = 1000
-	defaultIdleLeaveThreshold = 5 * time.Second
-	defaultScaleInterval      = 100 * time.Millisecond
-	fixedSizeRetryWait        = 100 * time.Millisecond
-	maxDispatchRetries        = 5
+	defaultRate    = 750
+	defaultBacklog = 1000
 )
 
+const maxSubmitRetries = 10
+
 type (
+	PoolEvents[T any] interface {
+		Events[T]
+		DispatchError(error, *T)
+	}
+
 	// WorkerPool is a generic worker pool that dispatches jobs of type T
-	// through a Claims-based fan-out. Construct it with New and shut it
+	// through a claims-based fan-out. Construct it with New and shut it
 	// down with Close. The zero value is not usable.
 	WorkerPool[T any] struct {
-		once             sync.Once
-		wg               sync.WaitGroup
+		onceClose        sync.Once
+		submitting       sync.WaitGroup
 		err              atomic.Pointer[error]
 		reject           atomic.Bool
 		mu               sync.Mutex
-		backlog          chan *T
-		workers          []*Worker[T]
+		backlog          chan JobAware[T]
+		workers          []*worker[T]
 		joinedIDs        map[uint64]struct{}
-		scaleReq         chan struct{}
 		ctx              func() context.Context
 		cancel           context.CancelFunc
 		limiter          *rate.Limiter
 		cfg              *Config
-		availableWorkers *Claims[T]
+		availableWorkers *claims[T]
 		handler          HandlerFunc[T]
-		events           Events[T]
+		events           PoolEvents[T]
 	}
 
 	// Config controls pool construction. Fields under ClaimsConfig drive the
-	// underlying Claims dispatcher; the top-level fields add pool-specific
+	// underlying claims dispatcher; the top-level fields add pool-specific
 	// behavior such as mode selection, backlog size, and rate limiting.
 	Config struct {
 		ClaimsConfig
 		// Mode selects FixedSize or AutoScale. Defaults to FixedSize.
 		Mode Mode
-		// MinSize is the minimum number of workers kept subscribed while in
-		// AutoScale mode. Ignored in FixedSize mode.
-		MinSize int
-		// MaxSize is the upper bound on Joined workers in AutoScale mode.
-		// If zero, falls back to ClaimsConfig.Size, then runtime.NumCPU().
-		// Ignored in FixedSize mode.
-		MaxSize int
-		// IdleTimeout is how long a worker may stay idle (no jobs processed)
-		// before the autoscaler Leaves it. Ignored in FixedSize mode.
-		// Defaults to 5s.
-		IdleTimeout time.Duration
-		// ScaleInterval is the period at which the autoscaler evaluates
-		// whether to scale up or down. Defaults to 100ms.
-		ScaleInterval time.Duration
 		// RateLimit caps submissions per second accepted into the backlog.
 		RateLimit float64
 		// Backlog is the buffered size of the internal job queue.
@@ -96,30 +86,6 @@ type (
 )
 
 func (cfg *Config) applyDefaults() {
-	if cfg.Mode == ModeAutoScale {
-		if cfg.MaxSize <= 0 {
-			cfg.MaxSize = cfg.Size
-		}
-		if cfg.MaxSize <= 0 {
-			cfg.MaxSize = runtime.NumCPU()
-		}
-		if cfg.MinSize < 0 {
-			cfg.MinSize = 0
-		}
-		if cfg.MinSize > cfg.MaxSize {
-			cfg.MinSize = cfg.MaxSize
-		}
-		// The Claims dispatcher must have room for every worker that may
-		// ever Subscribe, so its Size mirrors MaxSize in autoscale mode.
-		cfg.Size = cfg.MaxSize
-		if cfg.IdleTimeout <= 0 {
-			cfg.IdleTimeout = defaultIdleLeaveThreshold
-		}
-		if cfg.ScaleInterval <= 0 {
-			cfg.ScaleInterval = defaultScaleInterval
-		}
-	}
-
 	cfg.ClaimsConfig.applyDefaults()
 
 	if cfg.RateLimit <= 0 {
@@ -148,7 +114,7 @@ func WithHandler[T any](handler HandlerFunc[T]) PoolOptionFunc[T] {
 
 // WithEvents sets the lifecycle observer for the pool. If omitted, the
 // pool installs NoopEvents so handler code never has to nil-check.
-func WithEvents[T any](events Events[T]) PoolOptionFunc[T] {
+func WithEvents[T any](events PoolEvents[T]) PoolOptionFunc[T] {
 	return func(pool *WorkerPool[T]) {
 		pool.events = events
 	}
@@ -176,65 +142,58 @@ func New[T any](ctx context.Context, opts ...PoolOptionFunc[T]) (*WorkerPool[T],
 		ctx:       func() context.Context { return poolCtx },
 		cancel:    cancel,
 		joinedIDs: make(map[uint64]struct{}),
-		scaleReq:  make(chan struct{}, 1),
 	}
 
 	for _, opt := range opts {
 		opt(pool)
 	}
 
-	if pool.handler == nil {
+	switch {
+	case pool.handler == nil:
 		cancel()
 		return nil, errors.Join(ErrInvalidPool, errors.New("nil handler"))
-	}
-
-	if pool.cfg == nil {
+	case pool.cfg == nil:
 		cancel()
 		return nil, errors.Join(ErrInvalidPool, errors.New("nil config"))
 	}
 
-	if pool.events == nil {
-		pool.events = NewNoopEvents[T]()
-	}
-
 	pool.cfg.applyDefaults()
-
-	workClaims, err := NewClaims[T](&pool.cfg.ClaimsConfig)
+	workClaims, err := newClaims[T](&pool.cfg.ClaimsConfig)
 	if err != nil {
 		cancel()
 		return nil, err
 	}
 
 	pool.availableWorkers = workClaims
-	pool.backlog = make(chan *T, pool.cfg.Backlog)
+	pool.backlog = make(chan JobAware[T], pool.cfg.Backlog)
 	pool.limiter = rate.NewLimiter(rate.Limit(pool.cfg.RateLimit), pool.cfg.Size)
-
-	if err := pool.createWorkers(pool.cfg.Size); err != nil {
+	if err = pool.createWorkers(pool.cfg.Size); err != nil {
 		cancel()
 		return nil, err
 	}
 
-	initialJoin := pool.cfg.Size
-	if pool.cfg.Mode == ModeAutoScale {
-		initialJoin = pool.cfg.MinSize
+	var initialJoin int
+	switch pool.cfg.Mode {
+	case ModeFixedSize:
+		initialJoin = pool.cfg.Size
+	default:
+		return nil, errors.Join(ErrInvalidPool, errors.New("invalid mode"))
 	}
+
 	if err := pool.joinInitial(initialJoin); err != nil {
 		cancel()
 		return nil, err
 	}
 
-	pool.wg.Go(pool.listen)
-	if pool.cfg.Mode == ModeAutoScale {
-		pool.wg.Go(pool.runScaler)
-	}
+	go pool.dispatcher()
 
 	return pool, nil
 }
 
 func (pool *WorkerPool[T]) createWorkers(n int) error {
-	pool.workers = make([]*Worker[T], 0, n)
+	pool.workers = make([]*worker[T], 0, n)
 	for i := range n {
-		w, err := NewWorker(&WorkerConfig[T]{
+		w, err := newWorker(&workerConfig[T]{
 			ID:          uint64(i + 1),
 			HandlerFunc: pool.handler,
 			Events:      pool.events,
@@ -244,6 +203,7 @@ func (pool *WorkerPool[T]) createWorkers(n int) error {
 		}
 		pool.workers = append(pool.workers, w)
 	}
+
 	return nil
 }
 
@@ -251,7 +211,7 @@ func (pool *WorkerPool[T]) joinInitial(n int) error {
 	n = min(n, len(pool.workers))
 	for i := range n {
 		w := pool.workers[i]
-		if err := w.Join(pool.ctx(), pool.availableWorkers); err != nil {
+		if err := w.join(pool.ctx(), pool.availableWorkers); err != nil {
 			return err
 		}
 		pool.mu.Lock()
@@ -261,22 +221,14 @@ func (pool *WorkerPool[T]) joinInitial(n int) error {
 	return nil
 }
 
-// Close shuts the pool down. It is idempotent (safe to call multiple
-// times) and non-blocking after the first call returns: it flips the
-// pool into rejecting mode, cancels the internal context to unblock
-// in-flight workers, waits for the dispatch loop and scaler to exit,
-// then Leaves every subscribed worker.
-//
-// Close does not drain the backlog: jobs still queued when Close is
-// called are dropped. Submit called after Close returns ErrPoolShutdown.
 func (pool *WorkerPool[T]) Close() {
-	pool.once.Do(func() {
+	pool.onceClose.Do(func() {
 		pool.reject.Store(true)
+		pool.submitting.Wait()
+		close(pool.backlog)
 		pool.cancel()
-		pool.wg.Wait()
-
 		pool.mu.Lock()
-		joined := make([]*Worker[T], 0, len(pool.joinedIDs))
+		joined := make([]*worker[T], 0, len(pool.joinedIDs))
 		for _, w := range pool.workers {
 			if _, ok := pool.joinedIDs[w.ID()]; ok {
 				joined = append(joined, w)
@@ -286,107 +238,53 @@ func (pool *WorkerPool[T]) Close() {
 		pool.mu.Unlock()
 
 		for _, w := range joined {
-			_ = w.Leave(pool.availableWorkers, pool.cfg.SubmitTimeout)
+			_ = w.leave(pool.availableWorkers, pool.cfg.SubmitTimeout)
 		}
-
-		// Intentionally do not close(pool.backlog): callers may still be
-		// inside Submit after reject flipped, and closing would race with
-		// an in-flight chan send. listen() already exits on ctx cancel,
-		// and GC reclaims the channel when the pool is dropped.
 	})
 }
 
-// Submit enqueues job onto the pool's backlog. It is a convenience wrapper
+// Submit an enqueues job onto the pool's backlog. It is a convenience wrapper
 // around [WorkerPool.SubmitContext] with a background caller context, and
-// exists so callers who do not need caller-side cancelation can avoid the
+// exists so callers who do not need caller-side cancellation can avoid the
 // ceremony of threading a context.
 //
 // See [WorkerPool.SubmitContext] for the full list of return values and
-// cancelation semantics.
-func (pool *WorkerPool[T]) Submit(job *T) error {
-	return pool.SubmitContext(context.Background(), job)
-}
-
-// SubmitContext enqueues job onto the pool's backlog, honoring both the
-// caller's ctx and the pool's own lifecycle context. It blocks until space
-// is available, one of the contexts is canceled, or Config.SubmitTimeout
-// elapses.
-//
-// SubmitContext returns:
-//   - ErrNilCtx if ctx is nil
-//   - ErrNilJob if job is nil
-//   - ErrPoolShutdown if Close has already been called, or the pool context
-//     is canceled while waiting
-//   - ctx.Err() if the caller's ctx is canceled while waiting
-//   - ErrSubmitTimeout if the backlog stays full for longer than SubmitTimeout
-//
-// When both the caller ctx and the pool ctx fire simultaneously, pool
-// cancelation wins: the error is ErrPoolShutdown, so callers can reliably
-// use errors.Is(err, ErrPoolShutdown) to detect that the pool is gone.
-//
-// Once a job is on the backlog, delivery to a worker is asynchronous and
-// observable only via the Events hooks; canceling ctx after SubmitContext
-// has returned nil does not recall the job.
-func (pool *WorkerPool[T]) SubmitContext(ctx context.Context, job *T) error {
-	if ctx == nil {
-		return ErrNilCtx
-	}
-
-	if job == nil {
+// cancellation semantics.
+func (pool *WorkerPool[T]) Submit(ctx context.Context, job *T) error {
+	switch {
+	case job == nil:
 		return ErrNilJob
-	}
-
-	if pool.reject.Load() {
+	case pool.reject.Load():
 		return ErrPoolShutdown
 	}
 
-	if err := ctx.Err(); err != nil {
+	if err := pool.limiter.Wait(pool.ctx()); err != nil {
 		return err
-	}
-
-	// Merge caller ctx with pool ctx for the limiter wait. AfterFunc is
-	// lazy: no goroutine runs on the happy path, only if the pool actually
-	// cancels while we're parked in Wait. stop() detaches the hook on
-	// return so the pool ctx does not retain us after SubmitContext exits.
-	waitCtx, cancelWait := context.WithCancel(ctx)
-	stop := context.AfterFunc(pool.ctx(), cancelWait)
-	defer stop()
-	defer cancelWait()
-
-	if err := pool.limiter.Wait(waitCtx); err != nil {
-		// waitCtx fired. Figure out which side was responsible so callers
-		// get a meaningful error instead of a generic context.Canceled.
-		if pool.ctx().Err() != nil {
-			return ErrPoolShutdown
-		}
-
-		return ctx.Err()
 	}
 
 	select {
 	case <-pool.ctx().Done():
 		return ErrPoolShutdown
-	case <-ctx.Done():
-		return ctx.Err()
-	case pool.backlog <- job:
+	case pool.backlog <- newJobContext[T](pool.ctx(), ctx, job):
 		return nil
 	case <-time.After(pool.cfg.SubmitTimeout):
 		return ErrSubmitTimeout
 	}
 }
 
-// Err returns the last fatal dispatch error observed by the pool, or nil
+// Error returns the last fatal dispatch error observed by the pool, or nil
 // if there is none. Transient errors such as ErrSubmitTimeout (in
 // ModeFixedSize) are swallowed and do not surface here.
-func (pool *WorkerPool[T]) Err() error {
+func (pool *WorkerPool[T]) Error() error {
 	if err := pool.err.Load(); err != nil {
 		return *err
 	}
+
 	return nil
 }
 
 // JoinedCount returns the number of workers currently subscribed to the
-// Claims dispatcher. In FixedSize mode this is constant; in AutoScale mode
+// claims dispatcher. In FixedSize mode this is constant; in AutoScale mode
 // it moves between MinSize and MaxSize based on demand.
 func (pool *WorkerPool[T]) JoinedCount() int {
 	pool.mu.Lock()
@@ -394,62 +292,46 @@ func (pool *WorkerPool[T]) JoinedCount() int {
 	return len(pool.joinedIDs)
 }
 
-func (pool *WorkerPool[T]) listen() {
-	for {
-		select {
-		case <-pool.ctx().Done():
-			return
-		case job, ok := <-pool.backlog:
-			if !ok {
-				return
+func (pool *WorkerPool[T]) dispatcher() {
+	for ctx := range pool.backlog {
+		pool.submitting.Go(func() {
+			delay := time.Duration(pool.cfg.SubmitTimeout.Milliseconds() / maxSubmitRetries)
+			if err := pool.submitJob(maxSubmitRetries, delay.Round(time.Millisecond), ctx); err != nil {
+				pool.events.DispatchError(err, ctx.Job())
 			}
-			pool.dispatch(job)
-		}
+		})
 	}
 }
 
-// dispatch hands a job off to the Claims dispatcher. It retries a bounded
-// number of times on ErrSubmitTimeout / ErrNoWorkers regardless of mode;
-// in AutoScale mode each retry also nudges the scaler so a new worker can
-// spin up while we wait. If retries are exhausted the drop is surfaced via
-// Events.JobFailed so callers can observe it.
-func (pool *WorkerPool[T]) dispatch(job *T) {
-	for attempt := 0; ; attempt++ {
+func (pool *WorkerPool[T]) submitJob(maxRetries int, retryDelay time.Duration, ctx JobAware[T]) error {
+	for attempt := 0; attempt < maxRetries; attempt++ {
 		if err := pool.ctx().Err(); err != nil {
-			return
+			return err
 		}
 
-		err := pool.availableWorkers.Submit(pool.ctx(), job)
-		if err == nil {
-			return
+		var (
+			err       error
+			retriable bool
+		)
+		err = pool.availableWorkers.submit(ctx)
+		switch {
+		case errors.Is(err, ErrSubmitTimeout):
+			retriable = true
+		case errors.Is(err, ErrNoWorkers):
+			retriable = true
 		}
 
-		retriable := errors.Is(err, ErrSubmitTimeout) || errors.Is(err, ErrNoWorkers)
-		if retriable && attempt < maxDispatchRetries {
-			// ScaleInterval is only meaningful in AutoScale; in
-			// FixedSize it is 0, so use a fixed wait to avoid a
-			// busy-loop.
-			retryWait := fixedSizeRetryWait
-			if pool.cfg.Mode == ModeAutoScale {
-				retryWait = pool.cfg.ScaleInterval
-				pool.requestScale()
-			}
-			select {
-			case <-pool.ctx().Done():
-				return
-			case <-time.After(retryWait):
-			}
+		if !retriable {
+			return err
+		}
+
+		select {
+		case <-pool.ctx().Done():
+			return ErrPoolShutdown
+		case <-time.After(retryDelay):
 			continue
 		}
-
-		// Retries exhausted, or a non-retriable error (e.g.
-		// ErrDispatcherClosed). Either way the job is lost — surface
-		// it via Events so callers have a hook. Err() stays reserved
-		// for fatal dispatcher errors per the documented contract.
-		pool.events.JobFailed(err, job)
-		if !retriable {
-			pool.err.Store(&err)
-		}
-		return
 	}
+
+	return ErrMaxRetriesExceeded
 }

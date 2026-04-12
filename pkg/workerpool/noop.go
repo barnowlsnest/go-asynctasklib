@@ -36,6 +36,8 @@ func (*NoopEvents[T]) UnsubscribeFailed(_ error, _ uint64) {}
 
 func (*NoopEvents[T]) LeaveTimeout(_ uint64, _ time.Duration) {}
 
+func (*NoopEvents[T]) DispatchError(_ error, _ *T) {}
+
 // NoopHandler is a HandlerFunc that accepts any job and returns nil.
 // It is useful for tests and for benchmarking the pool's dispatch path
 // independently of handler cost.

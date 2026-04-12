@@ -12,7 +12,7 @@ import (
 // DropBugsTestSuite pins two production bugs that currently cause submitted
 // jobs to vanish without any observable trace:
 //
-//  1. claims.Submit has a stale-claim race. After popping a Claim from
+//  1. claims.Submit has a stale-claim race. After popping a claim from
 //     claimsCh it tries `worker.input <- job` in a select with a `default`
 //     branch; `default` fires whenever runLoop has not yet entered the
 //     inner `case job := <-w.input` line. That gap is a pure scheduler
@@ -48,8 +48,8 @@ func (e *dropBugsEvents) JobOk(_ *int)              { e.ok.Add(1) }
 func (e *dropBugsEvents) JobFailed(_ error, _ *int) { e.failed.Add(1) }
 
 // TestClaimsSubmit_NoSpuriousTimeouts reveals bug #1 directly against
-// Claims.Submit (no WorkerPool wrapper, no dispatch retries). A single
-// worker with a fast, never-failing handler is joined to a Claims
+// claims.Submit (no WorkerPool wrapper, no dispatch retries). A single
+// worker with a fast, never-failing handler is joined to a claims
 // dispatcher; the test hammers Submit in a loop for a bounded duration and
 // counts every Submit that returned a non-nil error. For a live,
 // subscribed worker the answer must be zero — any non-zero count means
@@ -65,28 +65,28 @@ func (e *dropBugsEvents) JobFailed(_ error, _ *int) { e.failed.Add(1) }
 // the "wedged forever" shape.
 func (s *DropBugsTestSuite) TestClaimsSubmit_NoSpuriousTimeouts() {
 	handler := func(_ context.Context, _ *int) error { return nil }
-	worker, err := NewWorker(&WorkerConfig[int]{
+	worker, err := newWorker(&workerConfig[int]{
 		ID:          1,
 		HandlerFunc: handler,
 	})
 	s.Require().NoError(err)
 
-	claims, err := NewClaims[int](&ClaimsConfig{
+	claims, err := newClaims[int](&ClaimsConfig{
 		Size:          1,
 		SubmitTimeout: 200 * time.Millisecond,
 	})
 	s.Require().NoError(err)
 
 	ctx := s.T().Context()
-	s.Require().NoError(worker.Join(ctx, claims))
-	defer func() { _ = worker.Leave(claims, time.Second) }()
+	s.Require().NoError(worker.join(ctx, claims))
+	defer func() { _ = worker.leave(claims, time.Second) }()
 
 	var submits, timeouts int
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
 		submits++
 		v := submits
-		if err := claims.Submit(ctx, &v); err != nil {
+		if err := claims.submit(newJobContext(ctx, ctx, new(v))); err != nil {
 			timeouts++
 		}
 	}
@@ -140,7 +140,7 @@ func (s *DropBugsTestSuite) TestFixedSizePool_WedgedWorker_DropsAreObservable() 
 
 	// Wedge the single worker with the seed job. The payload is irrelevant
 	// (the handler ignores it) — we only need a non-nil *int for Submit.
-	s.Require().NoError(pool.Submit(new(int)))
+	s.Require().NoError(pool.Submit(context.TODO(), new(int)))
 	select {
 	case <-started:
 	case <-time.After(2 * time.Second):
@@ -154,7 +154,7 @@ func (s *DropBugsTestSuite) TestFixedSizePool_WedgedWorker_DropsAreObservable() 
 	// for the dropped jobs.
 	const drops = 2
 	for range drops {
-		s.Require().NoError(pool.Submit(new(int)))
+		s.Require().NoError(pool.Submit(context.TODO(), new(int)))
 	}
 
 	// Give dispatch enough time to burn through the drops. Each drop runs

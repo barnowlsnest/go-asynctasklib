@@ -53,7 +53,7 @@ func (s *ClaimsTestSuite) TestNewClaims() {
 
 	for _, tc := range testCases {
 		s.Run(tc.title, func() {
-			c, err := NewClaims[int](tc.cfg)
+			c, err := newClaims[int](tc.cfg)
 			if tc.expectedErr != nil {
 				s.Require().ErrorIs(err, tc.expectedErr)
 				s.Require().Nil(c)
@@ -133,7 +133,7 @@ func (s *ClaimsTestSuite) TestSubscribe() {
 		title        string
 		size         int
 		presubscribe []uint64
-		worker       WorkerCloser[int]
+		worker       Subscriber[int]
 		expectedErr  error
 	}{
 		{
@@ -164,7 +164,7 @@ func (s *ClaimsTestSuite) TestSubscribe() {
 
 	for _, tc := range testCases {
 		s.Run(tc.title, func() {
-			c, err := NewClaims[int](&ClaimsConfig{Size: tc.size})
+			c, err := newClaims[int](&ClaimsConfig{Size: tc.size})
 			s.Require().NoError(err)
 
 			for _, id := range tc.presubscribe {
@@ -186,7 +186,7 @@ func (s *ClaimsTestSuite) TestUnsubscribe() {
 	testCases := []struct {
 		title        string
 		presubscribe []uint64
-		worker       WorkerCloser[int]
+		worker       Subscriber[int]
 		wantRemoved  bool
 	}{
 		{
@@ -207,7 +207,7 @@ func (s *ClaimsTestSuite) TestUnsubscribe() {
 
 	for _, tc := range testCases {
 		s.Run(tc.title, func() {
-			c, err := NewClaims[int](&ClaimsConfig{Size: 4})
+			c, err := newClaims[int](&ClaimsConfig{Size: 4})
 			s.Require().NoError(err)
 
 			for _, id := range tc.presubscribe {
@@ -224,29 +224,29 @@ func (s *ClaimsTestSuite) TestUnsubscribe() {
 }
 
 func (s *ClaimsTestSuite) TestSubmit_ContextCanceled() {
-	c, err := NewClaims[int](&ClaimsConfig{Size: 1, SubmitTimeout: time.Second})
+	c, err := newClaims[int](&ClaimsConfig{Size: 1, SubmitTimeout: time.Second})
 	s.Require().NoError(err)
 
 	ctx, cancel := context.WithCancel(s.T().Context())
 	cancel()
 
-	job := 1
-	s.Require().ErrorIs(c.Submit(ctx, &job), context.Canceled)
+	job := newJobContext(ctx, ctx, new(1))
+	s.Require().ErrorIs(c.submit(job), context.Canceled)
 }
 
 func (s *ClaimsTestSuite) TestSubmit_NoWorkers() {
-	c, err := NewClaims[int](&ClaimsConfig{
+	c, err := newClaims[int](&ClaimsConfig{
 		Size:          1,
 		SubmitTimeout: 80 * time.Millisecond,
 	})
 	s.Require().NoError(err)
 
-	job := 1
-	s.Require().ErrorIs(c.Submit(s.T().Context(), &job), ErrNoWorkers)
+	ctx := s.T().Context()
+	s.Require().ErrorIs(c.submit(newJobContext(ctx, ctx, new(1))), ErrNoWorkers)
 }
 
 func (s *ClaimsTestSuite) TestSubmit_HappyPath() {
-	c, err := NewClaims[int](&ClaimsConfig{
+	c, err := newClaims[int](&ClaimsConfig{
 		Size:          1,
 		SubmitTimeout: time.Second,
 	})
@@ -255,23 +255,24 @@ func (s *ClaimsTestSuite) TestSubmit_HappyPath() {
 	worker := &mockClaimsWorker{id: 1}
 	s.Require().NoError(c.Subscribe(worker))
 
-	input := make(chan *int, 1)
-	c.claimsCh <- &Claim[int]{id: worker.id, input: input}
+	input := make(chan JobAware[int], 1)
+	c.claimsCh <- &claim[int]{id: worker.id, input: input}
 
-	job := 42
-	s.Require().NoError(c.Submit(s.T().Context(), &job))
+	ctx := s.T().Context()
+	job := newJobContext(ctx, ctx, new(42))
+	s.Require().NoError(c.submit(job))
 
 	select {
 	case got := <-input:
 		s.Require().NotNil(got)
-		s.Require().Equal(42, *got)
+		s.Require().Equal(42, *got.Job())
 	case <-time.After(time.Second):
 		s.FailNow("job was not delivered")
 	}
 }
 
 func (s *ClaimsTestSuite) TestSubmit_DispatcherClosed() {
-	c, err := NewClaims[int](&ClaimsConfig{
+	c, err := newClaims[int](&ClaimsConfig{
 		Size:          1,
 		SubmitTimeout: time.Second,
 	})
@@ -279,8 +280,9 @@ func (s *ClaimsTestSuite) TestSubmit_DispatcherClosed() {
 
 	close(c.claimsCh)
 
-	job := 1
-	s.Require().ErrorIs(c.Submit(s.T().Context(), &job), ErrDispatcherClosed)
+	ctx := s.T().Context()
+	job := newJobContext(ctx, ctx, new(1))
+	s.Require().ErrorIs(c.submit(job), ErrDispatcherClosed)
 }
 
 // TestSubmit_StaleClaimTimesOut exercises the path where a claim is pulled
@@ -288,7 +290,7 @@ func (s *ClaimsTestSuite) TestSubmit_DispatcherClosed() {
 // channel: Submit should backoff, retry, and eventually return
 // ErrSubmitTimeout (not ErrNoWorkers, since the worker is still subscribed).
 func (s *ClaimsTestSuite) TestSubmit_StaleClaimTimesOut() {
-	c, err := NewClaims[int](&ClaimsConfig{
+	c, err := newClaims[int](&ClaimsConfig{
 		Size:          1,
 		SubmitTimeout: 120 * time.Millisecond,
 		SubmitBackoff: 10 * time.Millisecond,
@@ -298,15 +300,16 @@ func (s *ClaimsTestSuite) TestSubmit_StaleClaimTimesOut() {
 	worker := &mockClaimsWorker{id: 1}
 	s.Require().NoError(c.Subscribe(worker))
 
-	staleInput := make(chan *int) // no reader
-	c.claimsCh <- &Claim[int]{id: worker.id, input: staleInput}
+	staleInput := make(chan JobAware[int]) // no reader
+	c.claimsCh <- &claim[int]{id: worker.id, input: staleInput}
 
-	job := 1
-	s.Require().ErrorIs(c.Submit(s.T().Context(), &job), ErrSubmitTimeout)
+	ctx := s.T().Context()
+	job := newJobContext(ctx, ctx, new(1))
+	s.Require().ErrorIs(c.submit(job), ErrSubmitTimeout)
 }
 
 func (s *ClaimsTestSuite) TestMetadataGetters() {
-	c, err := NewClaims[int](&ClaimsConfig{Name: "pipeline", Size: 3})
+	c, err := newClaims[int](&ClaimsConfig{Name: "pipeline", Size: 3})
 	s.Require().NoError(err)
 
 	s.Require().Equal("pipeline", c.Name())
@@ -314,7 +317,7 @@ func (s *ClaimsTestSuite) TestMetadataGetters() {
 	s.Require().Equal(0, c.PendingClaims())
 	s.Require().NotNil(c.Claims())
 
-	input := make(chan *int)
-	c.claimsCh <- &Claim[int]{id: 1, input: input}
+	input := make(chan JobAware[int])
+	c.claimsCh <- &claim[int]{id: 1, input: input}
 	s.Require().Equal(1, c.PendingClaims())
 }

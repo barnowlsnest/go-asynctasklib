@@ -50,7 +50,7 @@ Simple Go library for managing asynchronous tasks with context-aware execution, 
 ### WorkerPool Package (`pkg/workerpool`)
 
 - **Two Modes**: `FixedSize` pre-subscribes all workers on startup; `AutoScale` keeps `MinSize` workers warm and Joins more (up to `MaxSize`) under load, Leaving idle workers after `IdleTimeout`
-- **Claims Dispatcher**: Workers advertise availability on a shared buffered channel — no per-submit scan, no queue-per-worker fan-out
+- **claims Dispatcher**: Workers advertise availability on a shared buffered channel — no per-submit scan, no queue-per-worker fan-out
 - **Generic over Job Type**: `WorkerPool[T]` — no `interface{}`, no boxing, handlers type-checked at compile time
 - **Panic Recovery**: Handler panics are caught, surfaced as `ErrWorkerPanic` via `Events.JobFailed`, and the worker keeps serving
 - **Rate Limiting**: Token-bucket limiter (`golang.org/x/time/rate`) caps submissions per second into the backlog
@@ -408,7 +408,7 @@ func main() {
             sem.Acquire()
             defer sem.Release()
 
-            fmt.Printf("Worker %d processing\n", id)
+            fmt.Printf("worker %d processing\n", id)
             time.Sleep(time.Second)
         }(i)
     }
@@ -435,7 +435,7 @@ defer sem.Release()
 // Do work...
 ```
 
-### Worker Pool — Fixed Size
+### worker Pool — Fixed Size
 
 ```go
 package main
@@ -480,7 +480,7 @@ func main() {
 }
 ```
 
-### Worker Pool — Auto-Scaling
+### worker Pool — Auto-Scaling
 
 `AutoScale` keeps a warm minimum of workers subscribed and adds more under
 load (up to `MaxSize`). Workers that idle beyond `IdleTimeout` are removed
@@ -509,7 +509,7 @@ if err != nil {
 defer pool.Close()
 ```
 
-### Worker Pool — Observing Events
+### worker Pool — Observing Events
 
 Pass an `Events[T]` implementation to observe worker lifecycle and job
 outcomes. Embed `NoopEvents[T]` to override only the hooks you care about.
@@ -629,7 +629,7 @@ def, err := task.NewBuilder(opts...).Build()
 ### Yielder (`pkg/yielder`)
 
 - `yielder.New[T](ctx, opts ...Option[T]) (*Yielder[T], error)` - Create and start a new yielder
-- `Results() <-chan T` - Claims of generated values (closes on completion)
+- `Results() <-chan T` - claims of generated values (closes on completion)
 - `Done() <-chan struct{}` - Closed when the yielder finishes (success, error, timeout, or stop)
 - `Stop()` - Stop the yielder (idempotent)
 - `Err() error` - Get accumulated errors
@@ -672,7 +672,7 @@ def, err := task.NewBuilder(opts...).Build()
 - `Submit(job *T) error` — enqueue a job into the backlog; convenience wrapper around `SubmitContext` with a background context
 - `SubmitContext(ctx context.Context, job *T) error` — enqueue a job honoring both the caller's `ctx` and the pool's lifecycle context. Returns `ctx.Err()` if the caller cancels first, `ErrPoolShutdown` if the pool cancels first (pool wins on ties), `ErrSubmitTimeout` if the backlog stays full past `SubmitTimeout`
 - `Close()` — idempotent shutdown; cancels in-flight work and rejects new submissions
-- `JoinedCount() int` — number of workers currently subscribed to the Claims dispatcher
+- `JoinedCount() int` — number of workers currently subscribed to the claims dispatcher
 - `Err() error` — last fatal dispatch error, if any
 
 **Config:**
@@ -697,10 +697,10 @@ type Config struct {
 - `ErrNilCtx` — `SubmitContext(nil, ...)`
 - `ErrNilJob` — `Submit(nil)` or `SubmitContext(ctx, nil)`
 - `ErrSubmitTimeout` — backlog full for longer than `SubmitTimeout`
-- `ErrNoWorkers` — Claims dispatcher has no subscribers (AutoScale nudges the scaler and retries)
+- `ErrNoWorkers` — claims dispatcher has no subscribers (AutoScale nudges the scaler and retries)
 - `ErrWorkerPanic` — handler panic caught by the worker, surfaced via `Events.JobFailed`
-- `ErrDispatcherClosed` — Claims channel closed while `Submit` was in progress
-- `ErrMaxPoolSize` — Subscribe called when Claims is at `Size` capacity
+- `ErrDispatcherClosed` — claims channel closed while `Submit` was in progress
+- `ErrMaxPoolSize` — Subscribe called when claims is at `Size` capacity
 
 **Events[T] interface:**
 
@@ -730,7 +730,7 @@ The library uses several synchronization primitives:
 - **`sync/atomic`**: For thread-safe state management and counters
 - **`sync.Mutex`**: To protect shared data structures (task lists, slices)
 - **`sync.WaitGroup`**: For coordinating goroutine completion and cleanup
-- **Claims-based Semaphore**: Lock-free concurrency control
+- **claims-based Semaphore**: Lock-free concurrency control
 
 ### Design Principles
 
