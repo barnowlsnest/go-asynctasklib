@@ -27,15 +27,20 @@ tasks:
 
   go-test:
     cmds:
-      - go test -race -cover '{{.ALL}}'
+      - go test -v -race -cover '{{.ALL}}'
 
   go-lint:
     cmds:
       - golangci-lint run --fix
 
+  go-clean:
+    cmds:
+      - go clean -testcache
+
   sanity:
     deps:
       - go-update
+      - go-clean
     cmds:
       - task: go-fmt
       - task: go-vet

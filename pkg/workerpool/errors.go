@@ -10,7 +10,7 @@ var (
 	// package returns via errors.Join or fmt.Errorf("%w: ...").
 	ErrNil = errors.New("nil error")
 	// ErrNilJob is returned when a nil job pointer is passed to Submit
-	// or into the Claims dispatcher.
+	// or into the claims dispatcher.
 	ErrNilJob = fmt.Errorf("%w: nil job", ErrNil)
 	// ErrNilCtx is returned when a required context.Context is nil.
 	ErrNilCtx = fmt.Errorf("%w: nil context", ErrNil)

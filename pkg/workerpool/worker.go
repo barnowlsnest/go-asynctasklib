@@ -9,60 +9,31 @@ import (
 	"time"
 )
 
-// CtxWorkerID is the context key under which each worker's ID is attached
-// to the context passed to HandlerFunc. Handlers can retrieve it with
-// ctx.Value(CtxWorkerID).(uint64).
-const CtxWorkerID CtxString = "worker"
-
 const defaultIdleTimeout = 100 * time.Millisecond
 
 var (
-	// ErrWorkerTimeout is returned from Worker.Leave when the worker did
+	// ErrWorkerTimeout is returned from worker.Leave when the worker did
 	// not exit its runLoop within the supplied timeout.
 	ErrWorkerTimeout = errors.New("worker timeout")
 	// ErrWorkerPanic wraps a recovered panic from HandlerFunc and is
 	// delivered to Events.JobFailed instead of propagating.
 	ErrWorkerPanic = errors.New("worker panic")
-	// ErrInvalidWorker is returned by constructors and Claims.Subscribe
+	// ErrInvalidWorker is returned by constructors and claims.Subscribe
 	// when the worker or its config is nil or otherwise unusable.
 	ErrInvalidWorker = errors.New("invalid worker")
-	// ErrWorkerAlreadyRunning is returned from Worker.Join when the
-	// worker is already subscribed to a Jobs source.
+	// ErrWorkerAlreadyRunning is returned from worker.Join when the
+	// worker is already subscribed to a jobs source.
 	ErrWorkerAlreadyRunning = errors.New("worker already subscribed")
 )
 
 type (
-	// CtxString is the typed key used to attach values such as the worker
-	// ID to a context without colliding with string keys from other
-	// packages.
-	CtxString string
-
-	// Jobs is the interface a worker Join target must implement. Claims
+	// Jobs is the interface a worker Join target must implement. claims
 	// is the canonical implementation used by WorkerPool.
 	Jobs[T any] interface {
-		Subscribe(WorkerCloser[T]) error
-		Unsubscribe(WorkerCloser[T]) error
-		Claims() chan *Claim[T]
+		Subscribe(Subscriber[T]) error
+		Unsubscribe(Subscriber[T]) error
+		Claims() chan *claim[T]
 		Name() string
-	}
-
-	// Worker is a single job-processing goroutine that subscribes to a
-	// Jobs source and invokes HandlerFunc for every job it receives.
-	// Workers are reusable across Join/Leave/Join cycles.
-	Worker[T any] struct {
-		channelName     string
-		id              uint64
-		idleTimeout     time.Duration
-		mu              sync.Mutex
-		lastActiveAt    atomic.Int64
-		running         atomic.Bool
-		startedNotified atomic.Bool
-		events          Events[T]
-		done            chan struct{}
-		input           chan *T
-		handlerFn       func(context.Context, *T) error
-		ctxFn           func() context.Context
-		cancel          func()
 	}
 
 	// Events is the observer interface for worker and job lifecycle
@@ -73,8 +44,8 @@ type (
 	Events[T any] interface {
 		WorkerStarted(uint64)
 		WorkerStopped(uint64)
-		JobFailed(error, *T)
-		JobOk(*T)
+		JobFailed(error, T)
+		JobOk(T)
 		Subscribed(uint64)
 		SubscribeFailed(error, uint64)
 		Unsubscribed(uint64)
@@ -82,10 +53,25 @@ type (
 		LeaveTimeout(uint64, time.Duration)
 	}
 
-	// WorkerConfig is the construction argument for NewWorker.
-	WorkerConfig[T any] struct {
+	worker[T any] struct {
+		channelName     string
+		id              uint64
+		idleTimeout     time.Duration
+		mu              sync.Mutex
+		lastActiveAt    atomic.Int64
+		running         atomic.Bool
+		startedNotified atomic.Bool
+		events          Events[T]
+		done            chan struct{}
+		input           chan JobAware[T]
+		handlerFn       HandlerFunc[T]
+		ctxFn           func() context.Context
+		cancel          func()
+	}
+
+	workerConfig[T any] struct {
 		// ID is the worker's stable numeric identity. It must be unique
-		// within the owning Claims dispatcher.
+		// within the owning claims dispatcher.
 		ID uint64
 		// IdleTimeout is the max duration the worker will park on its
 		// advertised claim before looping to re-advertise. Defaults to
@@ -97,27 +83,17 @@ type (
 		HandlerFunc HandlerFunc[T]
 	}
 
-	// WorkerStatus is a point-in-time snapshot of a worker returned by
-	// Worker.Status. It is safe to copy and inspect without a lock.
-	WorkerStatus struct {
-		Channel    string
-		ID         uint64
-		Running    bool
-		Subscribed bool
-	}
-
 	// HandlerFunc is the signature of a per-job handler. It receives
 	// the worker's per-Join context and a pointer to the job payload.
 	// A non-nil return value is reported via Events.JobFailed; panics
 	// are recovered, wrapped with ErrWorkerPanic, and reported the same
 	// way without taking the worker down.
-	HandlerFunc[T any] func(context.Context, *T) error
+	HandlerFunc[T any] func(JobAware[T]) error
 )
 
-func newWorkerContext(parentCtx context.Context, id uint64) (ctxFunc func() context.Context, cancelFunc func()) {
-	var ctxWithCancel, ctxWithVal context.Context
-	ctxWithVal = context.WithValue(parentCtx, CtxWorkerID, id)
-	ctxWithCancel, cancelFunc = context.WithCancel(ctxWithVal)
+func newWorkerContext(parentCtx context.Context) (ctxFunc func() context.Context, cancelFunc func()) {
+	var ctxWithCancel context.Context
+	ctxWithCancel, cancelFunc = context.WithCancel(parentCtx)
 	ctxFunc = func() context.Context {
 		return ctxWithCancel
 	}
@@ -125,10 +101,7 @@ func newWorkerContext(parentCtx context.Context, id uint64) (ctxFunc func() cont
 	return ctxFunc, cancelFunc
 }
 
-// NewWorker constructs a Worker. The worker is not bound to any context until
-// Join is called; a fresh per-Join context is created inside Join, which makes
-// workers reusable across Join -> Leave -> Join cycles.
-func NewWorker[T any](cfg *WorkerConfig[T]) (*Worker[T], error) {
+func newWorker[T any](cfg *workerConfig[T]) (*worker[T], error) {
 	if cfg == nil {
 		return nil, errors.Join(ErrInvalidWorker, errors.New("nil worker config"))
 	}
@@ -137,7 +110,7 @@ func NewWorker[T any](cfg *WorkerConfig[T]) (*Worker[T], error) {
 		return nil, errors.Join(ErrInvalidWorker, errors.New("nil handler"))
 	}
 
-	w := &Worker[T]{
+	w := &worker[T]{
 		id:          cfg.ID,
 		handlerFn:   cfg.HandlerFunc,
 		events:      cfg.Events,
@@ -156,28 +129,24 @@ func NewWorker[T any](cfg *WorkerConfig[T]) (*Worker[T], error) {
 	return w, nil
 }
 
-// ID returns the worker's stable numeric identity.
-func (w *Worker[T]) ID() uint64 {
+func (w *worker[T]) ID() uint64 {
 	return w.id
 }
 
 // LastActiveAt returns the Unix-nanosecond timestamp at which the worker
 // last finished processing a job or was most recently Joined. The
-// autoscaler reads it to decide when to Leave an idle worker.
-func (w *Worker[T]) LastActiveAt() int64 {
+// autoscaler reads it to decide when to leave an idle worker.
+func (w *worker[T]) LastActiveAt() int64 {
 	return w.lastActiveAt.Load()
 }
 
 // IsRunning reports whether the worker is currently processing a job. Used by
 // the pool's autoscaler to avoid leaving a busy worker when scaling down.
-func (w *Worker[T]) IsRunning() bool {
+func (w *worker[T]) IsRunning() bool {
 	return w.running.Load()
 }
 
-// Join subscribes the worker to the given Jobs source using ctx as the parent
-// for this Join cycle. Each Join builds a fresh cancellable context via
-// newWorkerContext, so a worker can be Joined, Left, and Joined again.
-func (w *Worker[T]) Join(ctx context.Context, jobs Jobs[T]) error {
+func (w *worker[T]) join(ctx context.Context, jobs Jobs[T]) error {
 	if ctx == nil {
 		return ErrNilCtx
 	}
@@ -200,14 +169,11 @@ func (w *Worker[T]) Join(ctx context.Context, jobs Jobs[T]) error {
 	}
 
 	w.events.Subscribed(w.ID())
-
-	// Reset the idle clock on every Join so autoscalers don't immediately
-	// classify a freshly-joined worker as idle based on a stale timestamp.
 	w.lastActiveAt.Store(time.Now().UnixNano())
 
 	w.mu.Lock()
-	w.ctxFn, w.cancel = newWorkerContext(ctx, w.id)
-	w.input = make(chan *T)
+	w.ctxFn, w.cancel = newWorkerContext(ctx)
+	w.input = make(chan JobAware[T])
 	w.done = make(chan struct{})
 	w.channelName = jobs.Name()
 	w.mu.Unlock()
@@ -219,11 +185,11 @@ func (w *Worker[T]) Join(ctx context.Context, jobs Jobs[T]) error {
 }
 
 // Context returns the worker's per-Join context and true if the worker is
-// currently Joined. It returns (nil, false) before the first Join and between
-// a Leave and the next Join. Using the comma-ok form makes the "no active
-// Join" state explicit and prevents callers from accidentally passing a nil
+// currently Joined. It returns (nil, false) before the first join and between
+// a leave and the next join. Using the comma-ok form makes the "no active
+// join" state explicit and prevents callers from accidentally passing a nil
 // context to downstream APIs.
-func (w *Worker[T]) Context() (context.Context, bool) {
+func (w *worker[T]) Context() (context.Context, bool) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
@@ -234,7 +200,7 @@ func (w *Worker[T]) Context() (context.Context, bool) {
 	return w.ctxFn(), true
 }
 
-func (w *Worker[T]) runLoop(jobs chan *Claim[T]) {
+func (w *worker[T]) runLoop(jobs chan *claim[T]) {
 	defer close(w.done)
 	for {
 		select {
@@ -243,7 +209,7 @@ func (w *Worker[T]) runLoop(jobs chan *Claim[T]) {
 		case <-w.ctxFn().Done():
 			w.running.Swap(false)
 			return
-		case jobs <- &Claim[T]{id: w.ID(), input: w.input}:
+		case jobs <- &claim[T]{id: w.ID(), input: w.input}:
 			if !w.startedNotified.Swap(true) {
 				w.events.WorkerStarted(w.ID())
 			}
@@ -252,12 +218,12 @@ func (w *Worker[T]) runLoop(jobs chan *Claim[T]) {
 			case <-w.ctxFn().Done():
 				w.running.Swap(false)
 				return
-			case job := <-w.input:
+			case ctx := <-w.input:
 				w.running.Store(true)
-				if err := w.processJob(job); err != nil {
-					w.events.JobFailed(err, job)
+				if err := w.processJob(ctx); err != nil {
+					w.events.JobFailed(err, ctx.Job())
 				} else {
-					w.events.JobOk(job)
+					w.events.JobOk(ctx.Job())
 				}
 
 				w.running.Store(false)
@@ -267,25 +233,17 @@ func (w *Worker[T]) runLoop(jobs chan *Claim[T]) {
 	}
 }
 
-func (w *Worker[T]) processJob(job *T) (err error) {
+func (w *worker[T]) processJob(ctx JobAware[T]) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = errors.Join(ErrWorkerPanic, fmt.Errorf("%+v", r))
 		}
 	}()
 
-	if err := w.ctxFn().Err(); err != nil {
-		return err
-	}
-
-	return w.handlerFn(w.ctxFn(), job)
+	return w.handlerFn(ctx)
 }
 
-// Leave unsubscribes the worker from jobs and cancels its per-Join
-// context, then waits up to timeout for the run loop to exit. It
-// returns ErrWorkerTimeout if the worker does not stop within timeout.
-// Leave is safe to call from a different goroutine than Join.
-func (w *Worker[T]) Leave(jobs Jobs[T], timeout time.Duration) error {
+func (w *worker[T]) leave(jobs Jobs[T], timeout time.Duration) error {
 	if jobs == nil {
 		return fmt.Errorf("%w: nil jobs", ErrNil)
 	}
@@ -301,32 +259,13 @@ func (w *Worker[T]) Leave(jobs Jobs[T], timeout time.Duration) error {
 
 	select {
 	case <-w.done:
+		w.mu.Lock()
 		w.ctxFn = nil
 		w.cancel = nil
+		w.mu.Unlock()
 		return nil
 	case <-time.After(timeout):
 		w.events.LeaveTimeout(w.ID(), timeout)
 		return ErrWorkerTimeout
 	}
-}
-
-// Status returns a point-in-time snapshot of the worker's identity,
-// channel, and running state. The returned struct is safe to retain.
-func (w *Worker[T]) Status() *WorkerStatus {
-	return &WorkerStatus{
-		ID:      w.ID(),
-		Running: w.running.Load(),
-		Channel: w.channelName,
-	}
-}
-
-// String implements fmt.Stringer, producing a compact debug format that
-// distinguishes running workers ("+worker:N->[channel]") from idle or
-// detached ones ("-worker:N").
-func (w *Worker[T]) String() string {
-	if w.running.Load() {
-		return fmt.Sprintf("+worker:%d->[%s]", w.ID(), w.channelName)
-	}
-
-	return fmt.Sprintf("-worker:%d", w.ID())
 }

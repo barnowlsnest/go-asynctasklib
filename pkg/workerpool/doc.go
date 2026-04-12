@@ -1,65 +1,43 @@
-// Package workerpool provides a generic, context-aware worker pool that
-// dispatches jobs of type T through a shared Claims dispatcher.
+// Package workerpool provides a generic, fixed-size pool of goroutines
+// that dispatch submitted jobs to the first idle worker via a claims-based
+// rendezvous channel. It is intended as a building block for services that
+// need bounded concurrency, backpressure, and predictable shutdown.
 //
-// # Modes
+// # Lifecycle
 //
-// The pool supports two modes selected by [Config.Mode]:
+// Construct a pool with [New], providing a context, a [Config], a
+// [HandlerFunc], and (optionally) a [PoolEvents] observer. New starts the
+// dispatcher goroutine and subscribes all workers. Call [WorkerPool.Submit]
+// to enqueue jobs. Call [WorkerPool.GracefulShutdown] to drain the backlog
+// and let in-flight handlers finish, or [WorkerPool.Shutdown] to cancel the
+// pool context immediately and let handlers observe cancellation through
+// their [JobAware] argument.
 //
-//   - [ModeFixedSize] creates Size workers and Joins them all on startup.
-//     The set of subscribed workers is constant for the pool's lifetime.
+// # Configuration
 //
-//   - [ModeAutoScale] starts with MinSize workers Joined and scales up (to
-//     MaxSize) when the backlog grows. Workers idle beyond IdleTimeout are
-//     Left and re-Joined the next time the pool needs them.
+// [Config] controls the three knobs that matter operationally:
 //
-// # Dispatch model
+//   - ClaimsConfig.Size — number of worker goroutines (fixed in
+//     ModeFixedSize). Defaults to runtime.NumCPU.
+//   - Backlog — buffered depth of the internal job channel. Submit blocks
+//     on a full backlog up to ClaimsConfig.SubmitTimeout.
+//   - RateLimit — jobs per second accepted into the backlog. Enforced by a
+//     token-bucket limiter with burst equal to ClaimsConfig.Size.
 //
-// Instead of fanning a job out across one queue per worker, every idle
-// worker publishes a [Claim] (its own input channel) onto a shared,
-// buffered channel. [WorkerPool.Submit] pops the next Claim and hands the
-// job directly to that worker. This gives O(1) dispatch with no per-submit
-// scan over the worker set and no global lock on the happy path.
+// # Events
 //
-// # Lifecycle and safety
+// [PoolEvents] is the observer interface for worker and job lifecycle
+// transitions. Embed [NoopEvents] and override only the hooks you care
+// about. Hooks fire synchronously on the worker goroutine, so keep
+// implementations fast; offload I/O to a separate goroutine.
 //
-// Handler panics are recovered inside the worker and surfaced as
-// [ErrWorkerPanic] via [Events.JobFailed]; the worker keeps serving after
-// a panic. [WorkerPool.Close] is idempotent, cancels in-flight work via
-// the pool's context, and rejects post-close submissions with
-// [ErrPoolShutdown].
+// # Shutdown semantics
 //
-// # Observability
+// GracefulShutdown blocks until the dispatcher drains every job already in
+// the backlog. Jobs that were in-flight on a worker run to completion. Jobs
+// submitted after GracefulShutdown returns ErrPoolShutdown.
 //
-// Callers can pass any implementation of the [Events] interface to
-// observe worker lifecycle transitions and per-job outcomes. [NoopEvents]
-// is provided as a zero-value base that custom observers can embed and
-// override selectively.
-//
-// # Basic usage
-//
-//	handler := func(ctx context.Context, job *int) error {
-//	    return process(*job)
-//	}
-//
-//	pool, err := workerpool.New(ctx,
-//	    workerpool.WithConfig[int](&workerpool.Config{
-//	        Mode: workerpool.ModeFixedSize,
-//	        ClaimsConfig: workerpool.ClaimsConfig{
-//	            Size:          8,
-//	            SubmitTimeout: 2 * time.Second,
-//	        },
-//	        Backlog:   100,
-//	        RateLimit: 1000,
-//	    }),
-//	    workerpool.WithHandler(handler),
-//	)
-//	if err != nil {
-//	    log.Fatal(err)
-//	}
-//	defer pool.Close()
-//
-//	job := 42
-//	if err := pool.Submit(&job); err != nil {
-//	    log.Printf("submit: %v", err)
-//	}
+// Shutdown cancels the pool context immediately. In-flight handlers observe
+// cancellation via their JobAware context; queued jobs never dispatch. Both
+// shutdown paths are idempotent and safe to call concurrently.
 package workerpool
