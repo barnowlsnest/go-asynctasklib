@@ -6,7 +6,7 @@ vars:
   ALL: ./...
 
 env:
-  MODULE_PATH: github.com/barnowlsnest/go-asynctasklib
+  MODULE_PATH: github.com/barnowlsnest/go-asynctasklib/v2
 
 tasks:
   go-update:

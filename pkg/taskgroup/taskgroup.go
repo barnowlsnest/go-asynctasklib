@@ -7,9 +7,9 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
-	"github.com/barnowlsnest/go-asynctasklib/pkg/semaphore"
+	"github.com/barnowlsnest/go-asynctasklib/v2/pkg/semaphore"
 
-	"github.com/barnowlsnest/go-asynctasklib/pkg/task"
+	"github.com/barnowlsnest/go-asynctasklib/v2/pkg/task"
 )
 
 type TaskGroup struct {

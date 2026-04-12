@@ -1,4 +1,4 @@
-module github.com/barnowlsnest/go-asynctasklib
+module github.com/barnowlsnest/go-asynctasklib/v2
 
 go 1.26.1
 

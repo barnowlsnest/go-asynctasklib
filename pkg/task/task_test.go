@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/barnowlsnest/go-asynctasklib/pkg/retry"
+	"github.com/barnowlsnest/go-asynctasklib/v2/pkg/retry"
 )
 
 func TestNew(t *testing.T) {
