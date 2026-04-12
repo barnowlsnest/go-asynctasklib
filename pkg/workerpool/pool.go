@@ -3,7 +3,6 @@ package workerpool
 import (
 	"context"
 	"errors"
-	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -11,11 +10,18 @@ import (
 	"golang.org/x/time/rate"
 )
 
+// ErrInvalidPool returned by New when required options are missing or
+// the supplied Config is unusable (nil handler, nil config, unknown Mode).
+// It is always joined with a second error explaining the specific failure.
 var ErrInvalidPool = errors.New("invalid pool configuration")
 
+// Mode selects the pool's scaling strategy. Currently only ModeFixedSize
+// is implemented; values are reserved for future auto-scaling modes.
 type Mode int
 
 const (
+	// ModeFixedSize keeps all configured workers subscribed for the entire
+	// pool lifetime. Worker count never changes after New returns.
 	ModeFixedSize Mode = iota
 )
 
@@ -25,16 +31,27 @@ const (
 )
 
 type (
+	// PoolEvents extends Events with DispatchError, the callback invoked
+	// when the claims dispatcher fails to hand a job to any worker
+	// (typically because SubmitTimeout elapsed with no accepting worker).
+	// Embed NoopEvents to satisfy PoolEvents without implementing every
+	// hook.
 	PoolEvents[T any] interface {
 		Events[T]
 		DispatchError(error, T)
 	}
 
+	// WorkerPool is a generic, fixed-size pool of worker goroutines that
+	// dispatches submitted jobs via a claims-based rendezvous channel.
+	// Construct with New; drive with Submit; tear down with Shutdown or
+	// GracefulShutdown. All exported methods are safe for concurrent use.
 	WorkerPool[T any] struct {
 		onceClose        sync.Once
 		err              atomic.Pointer[error]
 		reject           atomic.Bool
 		mu               sync.Mutex
+		shutdown         chan struct{}
+		drained          chan struct{}
 		backlog          chan JobAware[T]
 		workers          []*worker[T]
 		joinedIDs        map[uint64]struct{}
@@ -47,16 +64,30 @@ type (
 		events           PoolEvents[T]
 	}
 
+	// Config aggregates the tunables that shape a WorkerPool's runtime
+	// behavior. Pass a pointer to New via WithConfig; zero or negative
+	// numeric fields are replaced with defaults (see applyDefaults).
+	// ClaimsConfig is embedded so its fields (Size, SubmitTimeout, Name)
+	// can be set directly on the same literal.
 	Config struct {
 		ClaimsConfig
-		// Mode selects FixedSize or AutoScale. Defaults to FixedSize.
+		// Mode selects the pool's scaling strategy. Only ModeFixedSize
+		// is currently implemented and is the default.
 		Mode Mode
 		// RateLimit caps submissions per second accepted into the backlog.
+		// Defaults to 750 when unset. Enforced by a token-bucket limiter
+		// with burst equal to ClaimsConfig.Size.
 		RateLimit float64
 		// Backlog is the buffered size of the internal job queue.
+		// Defaults to 1000 when unset. Submit blocks on a full backlog
+		// up to ClaimsConfig.SubmitTimeout before returning
+		// ErrSubmitTimeout.
 		Backlog int
 	}
 
+	// PoolOptionFunc configures a WorkerPool during New. Helpers like
+	// WithConfig, WithHandler, and WithEvents return instances; callers
+	// rarely need to write their own.
 	PoolOptionFunc[T any] func(*WorkerPool[T])
 )
 
@@ -96,13 +127,15 @@ func WithEvents[T any](events PoolEvents[T]) PoolOptionFunc[T] {
 }
 
 // New constructs a WorkerPool bound to ctx. It applies the given options,
-// validates the configuration, creates all workers, Joins the initial set
-// (all of them in ModeFixedSize, MinSize of them in ModeAutoScale), and
-// starts the dispatch loop. The returned pool is ready to accept Submit
-// calls. Canceling ctx or calling Close drains the pool.
+// validates the configuration, creates the worker set, subscribes every
+// worker to the claims dispatcher, and starts the dispatch loop. The
+// returned pool is ready to accept Submit calls. Canceling ctx, calling
+// Shutdown, or calling GracefulShutdown tears the pool down.
 //
-// New returns ErrInvalidPool when a required option is missing, or the
-// context's error if ctx is already canceled.
+// WithConfig and WithHandler are required. New returns ErrInvalidPool
+// joined with a descriptive error when a required option is missing, the
+// Mode is unrecognized, or the ClaimsConfig is invalid. If ctx is already
+// canceled, New returns ctx.Err() instead.
 func New[T any](ctx context.Context, opts ...PoolOptionFunc[T]) (*WorkerPool[T], error) {
 	if ctx == nil {
 		return nil, errors.Join(ErrInvalidPool, errors.New("nil context"))
@@ -117,6 +150,8 @@ func New[T any](ctx context.Context, opts ...PoolOptionFunc[T]) (*WorkerPool[T],
 		ctx:       func() context.Context { return poolCtx },
 		cancel:    cancel,
 		joinedIDs: make(map[uint64]struct{}),
+		shutdown:  make(chan struct{}),
+		drained:   make(chan struct{}),
 	}
 
 	for _, opt := range opts {
@@ -196,10 +231,21 @@ func (pool *WorkerPool[T]) joinInitial(n int) error {
 	return nil
 }
 
+// Shutdown cancels the pool context immediately and returns once the
+// dispatcher has exited. In-flight handlers observe cancellation through
+// their JobAware argument; jobs still sitting in the backlog are dropped.
+// Subsequent Submit calls return ErrPoolShutdown. Safe to call multiple
+// times and from multiple goroutines — only the first call does work.
 func (pool *WorkerPool[T]) Shutdown() {
 	pool.close(false)
 }
 
+// GracefulShutdown stops accepting new submissions and waits for the
+// dispatcher to hand off every job already buffered in the backlog before
+// returning. Handlers that are running when GracefulShutdown is called
+// run to completion. Subsequent Submit calls return ErrPoolShutdown.
+// Safe to call multiple times and from multiple goroutines — only the
+// first call does work.
 func (pool *WorkerPool[T]) GracefulShutdown() {
 	pool.close(true)
 }
@@ -208,17 +254,12 @@ func (pool *WorkerPool[T]) close(shouldDrain bool) {
 	pool.onceClose.Do(func() {
 		defer pool.cancel()
 		pool.reject.Store(true)
-		if shouldDrain {
-			for {
-				if len(pool.backlog) > 0 {
-					runtime.Gosched()
-				} else {
-					break
-				}
-			}
+		close(pool.shutdown)
+		if !shouldDrain {
+			pool.cancel()
 		}
 
-		close(pool.backlog)
+		<-pool.drained
 		pool.mu.Lock()
 		joined := make([]*worker[T], 0, len(pool.joinedIDs))
 		for _, w := range pool.workers {
@@ -235,13 +276,23 @@ func (pool *WorkerPool[T]) close(shouldDrain bool) {
 	})
 }
 
-// Submit an enqueues job onto the pool's backlog. It is a convenience wrapper
-// around [WorkerPool.SubmitContext] with a background caller context, and
-// exists so callers who do not need caller-side cancellation can avoid the
-// ceremony of threading a context.
+// Submit enqueues job onto the pool's backlog, using ctx as the caller
+// context that will be merged with the pool context and handed to the
+// handler via its JobAware argument. Canceling ctx before the job is
+// picked up aborts the submission; canceling it after pickup surfaces
+// to the handler as ctx.Done() / ctx.Err().
 //
-// See [WorkerPool.SubmitContext] for the full list of return values and
-// cancellation semantics.
+// Submit first waits on the rate limiter, then attempts to place the job
+// on the backlog channel. It returns:
+//
+//   - ErrNilCtx if ctx is nil.
+//   - ErrPoolShutdown if Shutdown or GracefulShutdown was called.
+//   - ctx.Err() if the pool context is canceled while waiting.
+//   - ErrSubmitTimeout if the backlog stays full for longer than
+//     ClaimsConfig.SubmitTimeout.
+//   - nil once the job is accepted onto the backlog. A nil return does
+//     not guarantee the handler ran — GracefulShutdown drains, Shutdown
+//     does not.
 func (pool *WorkerPool[T]) Submit(ctx context.Context, job T) error {
 	switch {
 	case ctx == nil:
@@ -256,6 +307,8 @@ func (pool *WorkerPool[T]) Submit(ctx context.Context, job T) error {
 
 	select {
 	case <-pool.ctx().Done():
+		return pool.ctx().Err()
+	case <-pool.shutdown:
 		return ErrPoolShutdown
 	case pool.backlog <- newJobContext[T](pool.ctx(), ctx, job):
 		return nil
@@ -285,15 +338,16 @@ func (pool *WorkerPool[T]) JoinedCount() int {
 }
 
 func (pool *WorkerPool[T]) dispatcher() {
+	defer close(pool.drained)
 	for {
 		select {
 		case <-pool.ctx().Done():
 			return
-		case ctx, ok := <-pool.backlog:
-			if !ok {
+		case <-pool.shutdown:
+			if len(pool.backlog) == 0 {
 				return
 			}
-
+		case ctx := <-pool.backlog:
 			if err := pool.availableWorkers.submit(ctx); err != nil {
 				pool.events.DispatchError(err, ctx.Job())
 			}
