@@ -9,20 +9,20 @@ import (
 type (
 	JobAware[T any] interface {
 		context.Context
-		Job() *T
+		Job() T
 	}
 
 	jobContext[T any] struct {
 		poolCtx   context.Context
 		submitCtx context.Context
-		job       *T
+		job       T
 		done      chan struct{}
 		err       error
 		once      sync.Once
 	}
 )
 
-func newJobContext[T any](poolCtx, submitCtx context.Context, job *T) *jobContext[T] {
+func newJobContext[T any](poolCtx, submitCtx context.Context, job T) *jobContext[T] {
 	switch {
 	case poolCtx == nil:
 		panic("pool context cannot be nil")
@@ -108,6 +108,6 @@ func (ctx *jobContext[T]) Value(key any) any {
 	return submitVal
 }
 
-func (ctx *jobContext[T]) Job() *T {
+func (ctx *jobContext[T]) Job() T {
 	return ctx.job
 }

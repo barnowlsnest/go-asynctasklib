@@ -29,11 +29,6 @@ tasks:
     cmds:
       - go test -v -race -cover '{{.ALL}}'
 
-  loadtest:
-    desc: Run load-tagged stress tests under -race. Use for regression checks on the dispatcher and scaler under sustained parallelism.
-    cmds:
-      - go test -v -race -tags=load '{{.ALL}}'
-
   go-lint:
     cmds:
       - golangci-lint run --fix

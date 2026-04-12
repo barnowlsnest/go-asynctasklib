@@ -44,8 +44,8 @@ type (
 	Events[T any] interface {
 		WorkerStarted(uint64)
 		WorkerStopped(uint64)
-		JobFailed(error, *T)
-		JobOk(*T)
+		JobFailed(error, T)
+		JobOk(T)
 		Subscribed(uint64)
 		SubscribeFailed(error, uint64)
 		Unsubscribed(uint64)
@@ -53,9 +53,6 @@ type (
 		LeaveTimeout(uint64, time.Duration)
 	}
 
-	// worker is a single job-processing goroutine that subscribes to a
-	// Jobs source and invokes HandlerFunc for every job it receives.
-	// Workers are reusable across join/Leave/Join cycles.
 	worker[T any] struct {
 		channelName     string
 		id              uint64
@@ -67,12 +64,11 @@ type (
 		events          Events[T]
 		done            chan struct{}
 		input           chan JobAware[T]
-		handlerFn       func(context.Context, *T) error
+		handlerFn       HandlerFunc[T]
 		ctxFn           func() context.Context
 		cancel          func()
 	}
 
-	// workerConfig is the construction argument for newWorker.
 	workerConfig[T any] struct {
 		// ID is the worker's stable numeric identity. It must be unique
 		// within the owning claims dispatcher.
@@ -92,7 +88,7 @@ type (
 	// A non-nil return value is reported via Events.JobFailed; panics
 	// are recovered, wrapped with ErrWorkerPanic, and reported the same
 	// way without taking the worker down.
-	HandlerFunc[T any] func(context.Context, *T) error
+	HandlerFunc[T any] func(JobAware[T]) error
 )
 
 func newWorkerContext(parentCtx context.Context) (ctxFunc func() context.Context, cancelFunc func()) {
@@ -105,9 +101,6 @@ func newWorkerContext(parentCtx context.Context) (ctxFunc func() context.Context
 	return ctxFunc, cancelFunc
 }
 
-// newWorker constructs a worker. The worker is not bound to any context until
-// Join is called; a fresh per-Join context is created inside Join, which makes
-// workers reusable across Join -> Leave -> Join cycles.
 func newWorker[T any](cfg *workerConfig[T]) (*worker[T], error) {
 	if cfg == nil {
 		return nil, errors.Join(ErrInvalidWorker, errors.New("nil worker config"))
@@ -136,7 +129,6 @@ func newWorker[T any](cfg *workerConfig[T]) (*worker[T], error) {
 	return w, nil
 }
 
-// ID returns the worker's stable numeric identity.
 func (w *worker[T]) ID() uint64 {
 	return w.id
 }
@@ -154,9 +146,6 @@ func (w *worker[T]) IsRunning() bool {
 	return w.running.Load()
 }
 
-// join subscribes the worker to the given Jobs source using ctx as the parent
-// for this join cycle. Each join builds a fresh cancellable context via
-// newWorkerContext, so a worker can be Joined, Left, and Joined again.
 func (w *worker[T]) join(ctx context.Context, jobs Jobs[T]) error {
 	if ctx == nil {
 		return ErrNilCtx
@@ -251,13 +240,9 @@ func (w *worker[T]) processJob(ctx JobAware[T]) (err error) {
 		}
 	}()
 
-	return w.handlerFn(ctx, ctx.Job())
+	return w.handlerFn(ctx)
 }
 
-// leave unsubscribes the worker from Jobs and cancels its per-Join
-// context, then waits up to timeout for the run loop to exit. It
-// returns ErrWorkerTimeout if the worker does not stop within timeout.
-// leave is safe to call from a different goroutine than join.
 func (w *worker[T]) leave(jobs Jobs[T], timeout time.Duration) error {
 	if jobs == nil {
 		return fmt.Errorf("%w: nil jobs", ErrNil)

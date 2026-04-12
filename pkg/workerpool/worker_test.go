@@ -165,10 +165,10 @@ func (s *WorkerTestSuite) newNoopWorker() *worker[int] {
 	return w
 }
 
-func (s *WorkerTestSuite) neWorker(handler HandlerFunc[int]) *worker[int] {
+func (s *WorkerTestSuite) neWorker(handler HandlerFunc[*int]) *worker[*int] {
 	s.T().Helper()
-	cfg := &workerConfig[int]{ID: uint64(1), HandlerFunc: handler}
-	w, err := newWorker[int](cfg)
+	cfg := &workerConfig[*int]{ID: uint64(1), HandlerFunc: handler}
+	w, err := newWorker[*int](cfg)
 	s.Require().NoError(err)
 
 	return w
@@ -231,7 +231,7 @@ func (s *WorkerTestSuite) TestWorker_HappyPath() {
 	s.Require().False(w.running.Load())
 }
 
-func (s *WorkerTestSuite) prepareTestWorker(handlerFunc HandlerFunc[int]) *worker[int] {
+func (s *WorkerTestSuite) prepareTestWorker(handlerFunc HandlerFunc[*int]) *worker[*int] {
 	s.T().Helper()
 	w := s.neWorker(handlerFunc)
 	s.Require().NotNil(w)
@@ -239,27 +239,27 @@ func (s *WorkerTestSuite) prepareTestWorker(handlerFunc HandlerFunc[int]) *worke
 	return w
 }
 
-func resend(arrivals chan *int, errs chan error) HandlerFunc[int] {
-	return func(_ context.Context, job *int) error {
-		if job == nil {
+func resend(arrivals chan JobAware[*int], errs chan error) HandlerFunc[*int] {
+	return func(ctx JobAware[*int]) error {
+		if ctx.Job() == nil {
 			errs <- errors.New("job is nil")
 			return nil
 		}
 
-		arrivals <- job
+		arrivals <- ctx
 		return nil
 	}
 }
 
 func (s *WorkerTestSuite) TestWorker_ShouldReceiveJob() {
 	ctx := s.T().Context()
-	arrivals, errs := make(chan *int), make(chan error)
+	arrivals, errs := make(chan JobAware[*int]), make(chan error)
 	w := s.prepareTestWorker(resend(arrivals, errs))
-	jobs, err := newClaims[int](&ClaimsConfig{})
+	jobs, err := newClaims[*int](&ClaimsConfig{})
 	s.Require().NoError(err)
 	s.Require().NoError(w.join(ctx, jobs))
 
-	job := newJobContext[int](ctx, ctx, new(1))
+	job := newJobContext[*int](ctx, ctx, new(1))
 	var wg sync.WaitGroup
 	done := make(chan error)
 	wg.Go(func() {
@@ -275,7 +275,7 @@ func (s *WorkerTestSuite) TestWorker_ShouldReceiveJob() {
 			return
 		}
 
-		v := *val
+		v := *val.Job()
 		if v != 1 {
 			errs <- errors.New("unexpected value received: " + strconv.FormatInt(int64(v), 10))
 			return
@@ -301,13 +301,13 @@ func (s *WorkerTestSuite) TestWorker_ShouldNotReceiveJobWhenLeft() {
 	// Buffered so the submit goroutines below can deposit their errors
 	// even if the assertion loop bails early — without buffering, each
 	// extra submitter would leak parked on a chan-send forever.
-	arrivals, errs := make(chan *int, 2), make(chan error, 2)
+	arrivals, errs := make(chan JobAware[*int], 2), make(chan error, 2)
 	w := s.prepareTestWorker(resend(arrivals, errs))
 	cfgChannel := &ClaimsConfig{
 		SubmitTimeout: time.Second,
 	}
 
-	jobs, err := newClaims[int](cfgChannel)
+	jobs, err := newClaims[*int](cfgChannel)
 	s.Require().NoError(err)
 	s.Require().NoError(w.join(ctx, jobs))
 	time.Sleep(time.Second)
@@ -316,7 +316,7 @@ func (s *WorkerTestSuite) TestWorker_ShouldNotReceiveJobWhenLeft() {
 	// After Leave there are no subscribers, so each Submit should park for
 	// SubmitTimeout and then return ErrNoWorkers. We launch two submitters
 	// concurrently and assert *both* see the failure.
-	job1, job2 := newJobContext[int](ctx, ctx, new(1)), newJobContext[int](ctx, ctx, new(2))
+	job1, job2 := newJobContext[*int](ctx, ctx, new(1)), newJobContext[*int](ctx, ctx, new(2))
 	var wg sync.WaitGroup
 	wg.Go(func() {
 		errs <- jobs.submit(job1)
@@ -341,10 +341,10 @@ func (s *WorkerTestSuite) TestWorker_ShouldNotReceiveJobWhenLeft() {
 // permanently disabled by an earlier Leave.
 func (s *WorkerTestSuite) TestWorker_RejoinAfterLeave() {
 	ctx := s.T().Context()
-	arrivals, errs := make(chan *int, 1), make(chan error, 1)
+	arrivals, errs := make(chan JobAware[*int], 1), make(chan error, 1)
 	w := s.prepareTestWorker(resend(arrivals, errs))
 
-	jobs, err := newClaims[int](&ClaimsConfig{SubmitTimeout: time.Second})
+	jobs, err := newClaims[*int](&ClaimsConfig{SubmitTimeout: time.Second})
 	s.Require().NoError(err)
 
 	s.Require().NoError(w.join(ctx, jobs))
@@ -366,7 +366,7 @@ func (s *WorkerTestSuite) TestWorker_RejoinAfterLeave() {
 	select {
 	case got, ok := <-arrivals:
 		s.Require().True(ok)
-		s.Require().Equal(42, *got)
+		s.Require().Equal(42, *got.Job())
 	case err := <-errs:
 		s.Require().NoError(err)
 	case <-time.After(10 * time.Second):

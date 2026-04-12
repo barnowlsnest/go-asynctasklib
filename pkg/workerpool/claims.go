@@ -33,12 +33,9 @@ const (
 type (
 	Subscriber[T any] interface {
 		ID() uint64
+		IsRunning() bool
 	}
 
-	// claims is the lock-coordinated fan-out dispatcher that backs a
-	// WorkerPool. Workers Subscribe to advertise availability by pushing
-	// their input channel onto claimsCh, and the pool (or any caller)
-	// invokes submit to hand a job to the next advertised worker.
 	claims[T any] struct {
 		mu          sync.Mutex
 		cfg         *ClaimsConfig
@@ -70,8 +67,6 @@ type (
 		SubmitTimeout time.Duration
 	}
 
-	// claim is a worker's self-advertisement: an (id, input) pair that
-	// tells the dispatcher which worker owns the input channel.
 	claim[T any] struct {
 		id    uint64
 		input chan JobAware[T]
@@ -100,9 +95,6 @@ func (cfg *ClaimsConfig) applyDefaults() {
 	}
 }
 
-// newClaims constructs a claims dispatcher from cfg. It returns ErrNil
-// if cfg is nil. Missing fields on cfg are populated with package
-// defaults before construction.
 func newClaims[T any](cfg *ClaimsConfig) (*claims[T], error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("%w: nil claims config", ErrNil)
@@ -158,16 +150,6 @@ func (c *claims[T]) Unsubscribe(w Subscriber[T]) error {
 	return nil
 }
 
-// submit hands job to the next advertised worker. It blocks until a
-// worker accepts the job, ctx is canceled, or SubmitTimeout elapses.
-//
-// submit returns:
-//   - ctx.Err() if ctx is canceled or deadline-exceeded
-//   - ErrDispatcherClosed if the inbound claims channel is closed
-//   - ErrNoWorkers if SubmitTimeout elapses and no workers are subscribed
-//   - ErrSubmitTimeout if SubmitTimeout elapses but workers are subscribed
-//     (their input channels were all unresponsive: scheduler-race window
-//     or workers busy inside handlers)
 func (c *claims[T]) submit(ctx JobAware[T]) error {
 	deadline := time.Now().Add(c.cfg.SubmitTimeout)
 	for {
@@ -187,13 +169,13 @@ func (c *claims[T]) submit(ctx JobAware[T]) error {
 			return ctx.Err()
 		case <-time.After(remaining):
 			continue
-		case worker, ok := <-c.claimsCh:
+		case w, ok := <-c.claimsCh:
 			if !ok {
 				return ErrDispatcherClosed
 			}
 
 			c.mu.Lock()
-			_, alive := c.subscribers[worker.id]
+			_, alive := c.subscribers[w.id]
 			c.mu.Unlock()
 			if !alive {
 				continue
@@ -209,9 +191,7 @@ func (c *claims[T]) submit(ctx JobAware[T]) error {
 			}
 
 			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case worker.input <- ctx:
+			case w.input <- ctx:
 				return nil
 			case <-time.After(sendWait):
 				continue

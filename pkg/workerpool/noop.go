@@ -1,7 +1,7 @@
 package workerpool
 
 import (
-	"context"
+	"fmt"
 	"time"
 )
 
@@ -18,9 +18,9 @@ func NewNoopEvents[T any]() *NoopEvents[T] {
 	return &NoopEvents[T]{}
 }
 
-func (*NoopEvents[T]) JobOk(_ *T) {}
+func (*NoopEvents[T]) JobOk(_ T) {}
 
-func (*NoopEvents[T]) JobFailed(_ error, _ *T) {}
+func (*NoopEvents[T]) JobFailed(_ error, _ T) {}
 
 func (*NoopEvents[T]) Subscribed(_ uint64) {}
 
@@ -36,9 +36,11 @@ func (*NoopEvents[T]) UnsubscribeFailed(_ error, _ uint64) {}
 
 func (*NoopEvents[T]) LeaveTimeout(_ uint64, _ time.Duration) {}
 
-func (*NoopEvents[T]) DispatchError(_ error, _ *T) {}
+func (*NoopEvents[T]) DispatchError(err error, j T) {
+	fmt.Println(err, j)
+}
 
 // NoopHandler is a HandlerFunc that accepts any job and returns nil.
 // It is useful for tests and for benchmarking the pool's dispatch path
 // independently of handler cost.
-func NoopHandler[T any](_ context.Context, _ *T) error { return nil }
+func NoopHandler[T any](_ JobAware[T]) error { return nil }

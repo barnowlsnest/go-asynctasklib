@@ -22,7 +22,7 @@ func TestJobContextSuite(t *testing.T) {
 
 func (s *JobContextTestSuite) TestNewJobContext() {
 	t, todo := s.T().Context(), context.TODO()
-	ctx := newJobContext[int](t, todo, new(1))
+	ctx := newJobContext[*int](t, todo, new(1))
 	s.Require().NotNil(ctx)
 	s.Require().NotNil(ctx.poolCtx)
 	s.Require().NotNil(ctx.submitCtx)
@@ -32,7 +32,7 @@ func (s *JobContextTestSuite) TestNewJobContext() {
 
 func (s *JobContextTestSuite) TestPoolContextCanceled() {
 	pool, cancel := context.WithCancel(s.T().Context())
-	ctx := newJobContext[int](pool, context.TODO(), new(1))
+	ctx := newJobContext[*int](pool, context.TODO(), new(1))
 	go func() {
 		<-time.After(500 * time.Millisecond)
 		cancel()
@@ -49,7 +49,7 @@ func (s *JobContextTestSuite) TestPoolContextCanceled() {
 
 func (s *JobContextTestSuite) TestSubmitContextCanceled() {
 	submit, cancel := context.WithCancel(s.T().Context())
-	ctx := newJobContext[int](context.TODO(), submit, new(1))
+	ctx := newJobContext[*int](context.TODO(), submit, new(1))
 	go func() {
 		<-time.After(100 * time.Millisecond)
 		cancel()
@@ -68,7 +68,7 @@ func (s *JobContextTestSuite) TestPoolContextDeadline() {
 	pool, cancel := context.WithDeadline(s.T().Context(), time.Now().Add(5*time.Second))
 	defer cancel()
 
-	ctx := newJobContext[int](pool, context.TODO(), new(1))
+	ctx := newJobContext[*int](pool, context.TODO(), new(1))
 	expected, _ := pool.Deadline()
 	actual, ok := ctx.Deadline()
 	s.Require().True(ok)
@@ -79,7 +79,7 @@ func (s *JobContextTestSuite) TestSubmitContextDeadline() {
 	submit, cancel := context.WithDeadline(s.T().Context(), time.Now().Add(5*time.Second))
 	defer cancel()
 
-	ctx := newJobContext[int](context.TODO(), submit, new(1))
+	ctx := newJobContext[*int](context.TODO(), submit, new(1))
 	expected, _ := submit.Deadline()
 	actual, ok := ctx.Deadline()
 	s.Require().True(ok)
@@ -93,7 +93,7 @@ func (s *JobContextTestSuite) TestPoolDeadlineAfterSubmitDeadline() {
 	submit, cancel := context.WithDeadline(s.T().Context(), time.Now().Add(15*time.Second))
 	defer cancel()
 
-	ctx := newJobContext[int](pool, submit, new(1))
+	ctx := newJobContext[*int](pool, submit, new(1))
 	expected, _ := submit.Deadline()
 	actual, ok := ctx.Deadline()
 	s.Require().True(ok)
@@ -107,7 +107,7 @@ func (s *JobContextTestSuite) TestSubmitDeadlineAfterPoolDeadline() {
 	submit, cancel := context.WithDeadline(s.T().Context(), time.Now().Add(20*time.Second))
 	defer cancel()
 
-	ctx := newJobContext[int](pool, submit, new(1))
+	ctx := newJobContext[*int](pool, submit, new(1))
 	expected, _ := pool.Deadline()
 	actual, ok := ctx.Deadline()
 	s.Require().True(ok)
@@ -115,7 +115,7 @@ func (s *JobContextTestSuite) TestSubmitDeadlineAfterPoolDeadline() {
 }
 
 func (s *JobContextTestSuite) TestNoDeadline() {
-	ctx := newJobContext[int](context.TODO(), context.TODO(), new(1))
+	ctx := newJobContext[*int](context.TODO(), context.TODO(), new(1))
 	actual, ok := ctx.Deadline()
 	s.Require().False(ok)
 	s.Require().Equal(time.Time{}, actual)
@@ -129,7 +129,7 @@ func (s *JobContextTestSuite) TestContextValue() {
 	pool := context.WithValue(s.T().Context(), key1, "foo")
 	submit := context.WithValue(s.T().Context(), key2, "bar")
 
-	ctx := newJobContext[int](pool, submit, new(1))
+	ctx := newJobContext[*int](pool, submit, new(1))
 	s.Require().Equal("foo", ctx.Value(key1))
 	s.Require().Equal("bar", ctx.Value(key2))
 }
@@ -142,11 +142,11 @@ func (s *JobContextTestSuite) TestContextValueCollision() {
 	)
 	pool = context.WithValue(s.T().Context(), id, "foo")
 	submit = context.WithValue(s.T().Context(), id, "bar")
-	s.Require().Equal("bar", newJobContext[int](pool, submit, new(1)).Value(id))
+	s.Require().Equal("bar", newJobContext[*int](pool, submit, new(1)).Value(id))
 
 	pool = context.WithValue(s.T().Context(), key, "val")
 	submit = context.WithValue(s.T().Context(), key, "val")
-	s.Require().Equal("val", newJobContext[int](pool, submit, new(1)).Value(key))
+	s.Require().Equal("val", newJobContext[*int](pool, submit, new(1)).Value(key))
 }
 
 func (s *JobContextTestSuite) TestPoolContextValue() {
@@ -154,7 +154,7 @@ func (s *JobContextTestSuite) TestPoolContextValue() {
 	var id testContextKey = "id"
 	pool = context.WithValue(s.T().Context(), id, "bar")
 	submit = context.WithValue(s.T().Context(), id, nil)
-	s.Require().Equal("bar", newJobContext[int](pool, submit, new(1)).Value(id))
+	s.Require().Equal("bar", newJobContext[*int](pool, submit, new(1)).Value(id))
 }
 
 func (s *JobContextTestSuite) TestSubmitContextValue() {
@@ -162,7 +162,7 @@ func (s *JobContextTestSuite) TestSubmitContextValue() {
 	var key testContextKey = "key"
 	pool = context.WithValue(s.T().Context(), key, nil)
 	submit = context.WithValue(s.T().Context(), key, "foo")
-	s.Require().Equal("foo", newJobContext[int](pool, submit, new(1)).Value(key))
+	s.Require().Equal("foo", newJobContext[*int](pool, submit, new(1)).Value(key))
 }
 
 func (s *JobContextTestSuite) TestNilContextValue() {
@@ -170,7 +170,7 @@ func (s *JobContextTestSuite) TestNilContextValue() {
 	var key testContextKey = "key"
 	pool = context.TODO()
 	submit = context.TODO()
-	s.Require().Nil(newJobContext[int](pool, submit, new(1)).Value(key))
+	s.Require().Nil(newJobContext[*int](pool, submit, new(1)).Value(key))
 }
 
 func (s *JobContextTestSuite) TestContextTimeout() {
@@ -179,7 +179,7 @@ func (s *JobContextTestSuite) TestContextTimeout() {
 	submit, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	ctx := newJobContext[int](pool, submit, new(1))
+	ctx := newJobContext[*int](pool, submit, new(1))
 	actualDeadline, ok := ctx.Deadline()
 	s.Require().True(ok)
 	s.Require().Equal(timeout, time.Until(actualDeadline).Round(time.Second))
