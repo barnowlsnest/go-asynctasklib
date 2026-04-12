@@ -49,20 +49,21 @@ Simple Go library for managing asynchronous tasks with context-aware execution, 
 
 ### WorkerPool Package (`pkg/workerpool`)
 
-- **Two Modes**: `FixedSize` pre-subscribes all workers on startup; `AutoScale` keeps `MinSize` workers warm and Joins more (up to `MaxSize`) under load, Leaving idle workers after `IdleTimeout`
-- **claims Dispatcher**: Workers advertise availability on a shared buffered channel — no per-submit scan, no queue-per-worker fan-out
+- **Fixed-Size Pool**: `ModeFixedSize` pre-subscribes all workers on startup; worker count never changes after `New` returns
+- **Claims Dispatcher**: Workers advertise availability on a shared buffered channel — no per-submit scan, no queue-per-worker fan-out
 - **Generic over Job Type**: `WorkerPool[T]` — no `interface{}`, no boxing, handlers type-checked at compile time
-- **Panic Recovery**: Handler panics are caught, surfaced as `ErrWorkerPanic` via `Events.JobFailed`, and the worker keeps serving
+- **Composed Context**: Handlers receive a `JobAware[T]` that merges the pool's lifecycle context with the caller's `Submit` context; whichever cancels first cancels the handler
+- **Panic Recovery**: Handler panics are caught, wrapped in `ErrWorkerPanic`, and surfaced via `Events.JobFailed` — the worker keeps serving
 - **Rate Limiting**: Token-bucket limiter (`golang.org/x/time/rate`) caps submissions per second into the backlog
-- **Pluggable Events**: `Events[T]` interface observes every lifecycle transition (worker start/stop, subscribe, job ok/failed, leave timeout); embed `NoopEvents[T]` to override only the hooks you care about
-- **Graceful Shutdown**: `Close()` is idempotent via `sync.Once`, cancels in-flight work via context, and rejects post-close submissions with `ErrPoolShutdown`
+- **Pluggable Events**: `PoolEvents[T]` observes every lifecycle transition (worker start/stop, subscribe, job ok/failed, leave timeout, dispatch error); embed `NoopEvents[T]` to override only the hooks you care about
+- **Two Shutdown Modes**: `Shutdown()` cancels in-flight work immediately; `GracefulShutdown()` drains the backlog first. Both are idempotent and reject post-shutdown submissions with `ErrPoolShutdown`
 
 ## Installation
 
-go 1.25 or later
+go 1.26.1 or later
 
 ```bash
-go get github.com/barnowlsnest/go-asynctasklib
+go get github.com/barnowlsnest/go-asynctasklib/v2
 ```
 
 ## Quick Start
@@ -435,7 +436,7 @@ defer sem.Release()
 // Do work...
 ```
 
-### worker Pool — Fixed Size
+### Worker Pool — Fixed Size
 
 ```go
 package main
@@ -445,16 +446,16 @@ import (
     "fmt"
     "time"
 
-    "github.com/barnowlsnest/go-asynctasklib/pkg/workerpool"
+    "github.com/barnowlsnest/go-asynctasklib/v2/pkg/workerpool"
 )
 
 func main() {
-    handler := func(_ context.Context, job *int) error {
-        fmt.Printf("processing %d\n", *job)
+    handler := func(ctx workerpool.JobAware[int]) error {
+        fmt.Printf("processing %d\n", ctx.Job())
         return nil
     }
 
-    pool, err := workerpool.New(context.Background(),
+    pool, err := workerpool.New[int](context.Background(),
         workerpool.WithConfig[int](&workerpool.Config{
             Mode: workerpool.ModeFixedSize,
             ClaimsConfig: workerpool.ClaimsConfig{
@@ -464,54 +465,25 @@ func main() {
             Backlog:   100,
             RateLimit: 1000, // max submissions per second
         }),
-        workerpool.WithHandler(handler),
+        workerpool.WithHandler[int](handler),
     )
     if err != nil {
         panic(err)
     }
-    defer pool.Close()
+    defer pool.GracefulShutdown()
 
+    ctx := context.Background()
     for i := 1; i <= 20; i++ {
-        job := i
-        if err := pool.Submit(&job); err != nil {
+        if err := pool.Submit(ctx, i); err != nil {
             fmt.Printf("submit %d: %v\n", i, err)
         }
     }
 }
 ```
 
-### worker Pool — Auto-Scaling
+### Worker Pool — Observing Events
 
-`AutoScale` keeps a warm minimum of workers subscribed and adds more under
-load (up to `MaxSize`). Workers that idle beyond `IdleTimeout` are removed
-and re-added the next time the backlog grows. Use `pool.JoinedCount()` to
-observe the current number of subscribed workers.
-
-```go
-pool, err := workerpool.New(ctx,
-    workerpool.WithConfig[int](&workerpool.Config{
-        Mode:          workerpool.ModeAutoScale,
-        MinSize:       2,
-        MaxSize:       16,
-        IdleTimeout:   5 * time.Second,
-        ScaleInterval: 100 * time.Millisecond,
-        ClaimsConfig: workerpool.ClaimsConfig{
-            SubmitTimeout: 3 * time.Second,
-        },
-        Backlog:   500,
-        RateLimit: 2000,
-    }),
-    workerpool.WithHandler(handler),
-)
-if err != nil {
-    panic(err)
-}
-defer pool.Close()
-```
-
-### worker Pool — Observing Events
-
-Pass an `Events[T]` implementation to observe worker lifecycle and job
+Pass a `PoolEvents[T]` implementation to observe worker lifecycle and job
 outcomes. Embed `NoopEvents[T]` to override only the hooks you care about.
 
 ```go
@@ -521,15 +493,32 @@ type metrics struct {
     fail atomic.Int64
 }
 
-func (m *metrics) JobOk(_ *int)              { m.ok.Add(1) }
-func (m *metrics) JobFailed(_ error, _ *int) { m.fail.Add(1) }
+func (m *metrics) JobOk(_ int)              { m.ok.Add(1) }
+func (m *metrics) JobFailed(_ error, _ int) { m.fail.Add(1) }
 
 m := &metrics{}
-pool, err := workerpool.New(ctx,
+pool, err := workerpool.New[int](ctx,
     workerpool.WithConfig[int](cfg),
-    workerpool.WithHandler(handler),
+    workerpool.WithHandler[int](handler),
     workerpool.WithEvents[int](m),
 )
+```
+
+### Worker Pool — Per-Submission Context
+
+`Submit` accepts a caller `ctx` that is merged with the pool's lifecycle
+context. The handler receives a `JobAware[T]` that satisfies
+`context.Context`; whichever parent cancels first cancels the handler.
+Values set on the submit context shadow pool-wide values for the same key.
+
+```go
+ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+defer cancel()
+
+if err := pool.Submit(ctx, payload); err != nil {
+    // ErrPoolShutdown, ErrSubmitTimeout, or ctx.Err()
+    fmt.Println("submit:", err)
+}
 ```
 
 ## API Reference
@@ -659,50 +648,74 @@ def, err := task.NewBuilder(opts...).Build()
 
 **Constructor:**
 
-- `workerpool.New[T](ctx, opts ...PoolOptionFunc[T]) (*WorkerPool[T], error)` — construct a pool; requires `WithConfig` and `WithHandler`
+- `workerpool.New[T](ctx, opts ...PoolOptionFunc[T]) (*WorkerPool[T], error)` — construct a pool; requires `WithConfig` and `WithHandler`. Returns `ErrInvalidPool` joined with a descriptive error when required options are missing, or `ctx.Err()` if `ctx` is already canceled.
 
 **Options:**
 
-- `WithConfig[T](cfg *Config)` — pool configuration (mode, sizes, backlog, rate limit)
-- `WithHandler[T](fn HandlerFunc[T])` — job handler `func(ctx context.Context, job *T) error`
-- `WithEvents[T](events Events[T])` — lifecycle observer (defaults to `NoopEvents[T]`)
+- `WithConfig[T](cfg *Config)` — pool configuration (mode, claims, backlog, rate limit). Required.
+- `WithHandler[T](fn HandlerFunc[T])` — job handler `func(JobAware[T]) error`. Required.
+- `WithEvents[T](events PoolEvents[T])` — lifecycle observer (defaults to `NoopEvents[T]`)
 
 **Pool Methods:**
 
-- `Submit(job *T) error` — enqueue a job into the backlog; convenience wrapper around `SubmitContext` with a background context
-- `SubmitContext(ctx context.Context, job *T) error` — enqueue a job honoring both the caller's `ctx` and the pool's lifecycle context. Returns `ctx.Err()` if the caller cancels first, `ErrPoolShutdown` if the pool cancels first (pool wins on ties), `ErrSubmitTimeout` if the backlog stays full past `SubmitTimeout`
-- `Close()` — idempotent shutdown; cancels in-flight work and rejects new submissions
+- `Submit(ctx context.Context, job T) error` — enqueue a job onto the backlog, passing `ctx` as the caller context. The handler sees a merged context (pool ⊕ caller); whichever cancels first cancels the handler. Returns `ErrNilCtx` if `ctx` is nil, `ErrPoolShutdown` if the pool is shut down, `ctx.Err()` if the pool context cancels while waiting, or `ErrSubmitTimeout` if the backlog stays full past `ClaimsConfig.SubmitTimeout`.
+- `Shutdown()` — cancel the pool context immediately; in-flight handlers observe cancellation and jobs still in the backlog are dropped. Idempotent.
+- `GracefulShutdown()` — stop accepting new submissions and wait for the dispatcher to hand off every backlogged job before returning. Idempotent.
 - `JoinedCount() int` — number of workers currently subscribed to the claims dispatcher
-- `Err() error` — last fatal dispatch error, if any
+- `Error() error` — last fatal dispatch error, if any
+
+**HandlerFunc and JobAware:**
+
+```go
+type HandlerFunc[T any] func(JobAware[T]) error
+
+type JobAware[T any] interface {
+    context.Context
+    Job() T
+}
+```
+
+`JobAware[T]` embeds `context.Context`, so handlers honor cancellation and
+deadlines with the usual `ctx.Done()` / `ctx.Err()` idioms, and read the
+payload via `Job()`.
 
 **Config:**
 
 ```go
 type Config struct {
-    ClaimsConfig                 // Size, SubmitTimeout, SubmitBackoff, Name
-    Mode          Mode           // ModeFixedSize or ModeAutoScale
-    MinSize       int            // AutoScale: minimum joined workers (warm pool)
-    MaxSize       int            // AutoScale: upper bound on joined workers
-    IdleTimeout   time.Duration  // AutoScale: leave threshold (default 5s)
-    ScaleInterval time.Duration  // AutoScale: scaler period (default 100ms)
-    RateLimit     float64        // max Submit rate per second (default 750)
-    Backlog       int            // buffered job queue size (default 1000)
+    ClaimsConfig          // Size, SubmitTimeout, SubmitBackoff, SubmitAttemptsPerSec, BackoffFactor, Name
+    Mode      Mode        // ModeFixedSize (default)
+    RateLimit float64     // max Submit rate per second (default 750)
+    Backlog   int         // buffered job queue size (default 1000)
 }
 ```
 
+**ClaimsConfig** (embedded into `Config`):
+
+- `Size int` — maximum subscribed workers; also sizes the claims channel (default `runtime.NumCPU()`)
+- `SubmitTimeout time.Duration` — max wait for a worker to accept a job (default 1s)
+- `SubmitBackoff time.Duration` — initial backoff between retries after a stale claim (default 50ms)
+- `SubmitAttemptsPerSec int` — cap on retry rate for stale claims (default 5)
+- `BackoffFactor float64` — multiplier on `SubmitBackoff` per retry; must be in (0, 1] (default 1.5 → reset)
+- `Name string` — optional label surfaced via the worker debug format
+
 **Errors:**
 
-- `ErrInvalidPool` — construction failure (missing handler/config, nil or canceled context)
-- `ErrPoolShutdown` — `Submit` / `SubmitContext` called after `Close`, or the pool's lifecycle context was canceled while waiting
-- `ErrNilCtx` — `SubmitContext(nil, ...)`
-- `ErrNilJob` — `Submit(nil)` or `SubmitContext(ctx, nil)`
-- `ErrSubmitTimeout` — backlog full for longer than `SubmitTimeout`
-- `ErrNoWorkers` — claims dispatcher has no subscribers (AutoScale nudges the scaler and retries)
+- `ErrInvalidPool` — construction failure (missing handler/config, nil context)
+- `ErrPoolShutdown` — `Submit` called after `Shutdown`/`GracefulShutdown`, or the pool's lifecycle context was canceled while waiting
+- `ErrNilCtx` — `Submit(nil, ...)` or a nil context reaching a worker
+- `ErrNilJob` — base error wrapped by nil-job conditions
+- `ErrNil` — base sentinel joined by every "nil X" error in the package
+- `ErrSubmitTimeout` — backlog full, or no worker accepted the job within `SubmitTimeout`
+- `ErrNoWorkers` — `SubmitTimeout` elapsed with no subscribed workers
 - `ErrWorkerPanic` — handler panic caught by the worker, surfaced via `Events.JobFailed`
-- `ErrDispatcherClosed` — claims channel closed while `Submit` was in progress
-- `ErrMaxPoolSize` — Subscribe called when claims is at `Size` capacity
+- `ErrDispatcherClosed` — claims channel closed while `submit` was in progress
+- `ErrMaxPoolSize` — `Subscribe` called when claims is at `Size` capacity
+- `ErrInvalidWorker` — worker or worker config is nil
+- `ErrWorkerAlreadyRunning` — `Join` called on a worker that is already subscribed
+- `ErrWorkerTimeout` — worker did not exit its run loop within the `Leave` timeout
 
-**Events[T] interface:**
+**Events[T] / PoolEvents[T] interfaces:**
 
 ```go
 type Events[T any] interface {
@@ -713,12 +726,19 @@ type Events[T any] interface {
     Unsubscribed(id uint64)
     UnsubscribeFailed(err error, id uint64)
     LeaveTimeout(id uint64, timeout time.Duration)
-    JobOk(job *T)
-    JobFailed(err error, job *T)
+    JobOk(job T)
+    JobFailed(err error, job T)
+}
+
+type PoolEvents[T any] interface {
+    Events[T]
+    DispatchError(err error, job T)
 }
 ```
 
-`NoopEvents[T]` implements every method as a no-op so custom observers can
+`DispatchError` fires when the claims dispatcher fails to hand a job to any
+worker (typically `ErrSubmitTimeout` with no accepting worker). `NoopEvents[T]`
+implements every `PoolEvents[T]` method as a no-op so custom observers can
 embed it and override only the hooks they care about.
 
 ## Architecture
