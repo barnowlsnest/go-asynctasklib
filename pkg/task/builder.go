@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/barnowlsnest/go-asynctasklib/pkg/retry"
+	"github.com/barnowlsnest/go-asynctasklib/v2/pkg/retry"
 )
 
 type (

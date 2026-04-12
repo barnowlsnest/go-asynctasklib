@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/barnowlsnest/go-asynctasklib/pkg/workerpool"
+	"github.com/barnowlsnest/go-asynctasklib/v2/pkg/workerpool"
 )
 
 // Example_basicUsage shows how to spin up a fixed-size pool of workers, feed
