@@ -143,6 +143,19 @@ func (yr *Yielder[T]) Stop() {
 	})
 }
 
+// StopErr stops the yielder with the provided error, ensuring the error is recorded and the done channel is closed.
+// It is noop if err is nil
+func (yr *Yielder[T]) StopErr(err error) {
+	if err == nil {
+		return
+	}
+
+	yr.onceStop.Do(func() {
+		close(yr.doneCh)
+		yr.setErr(err)
+	})
+}
+
 func generate[T comparable](ctx context.Context, y *Yielder[T]) {
 	defer close(y.genChan)
 	func(y *Yielder[T]) {
@@ -183,7 +196,7 @@ func watchForTimeoutOrStop[T comparable](ctx context.Context, y *Yielder[T]) {
 	case <-y.doneCh:
 		return
 	case <-time.After(y.timeout):
-		y.Stop()
+		y.StopErr(ErrTimeout)
 		return
 	}
 }
