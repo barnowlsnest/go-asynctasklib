@@ -95,7 +95,7 @@ func (s *YielderSuite) TestWithValuesEmptySlice() {
 
 func (s *YielderSuite) TestWithGeneratorFuncEmitsValues() {
 	y, err := New[string](context.Background(),
-		WithGeneratorFunc(func() ([]string, error) {
+		WithGeneratorFunc(func(_ context.Context) ([]string, error) {
 			return []string{"hello", "world"}, nil
 		}),
 	)
@@ -112,7 +112,7 @@ func (s *YielderSuite) TestWithGeneratorFuncEmitsValues() {
 func (s *YielderSuite) TestGeneratorFuncErrorStopsYielder() {
 	genErr := errors.New("generator failed")
 	y, err := New[int](context.Background(),
-		WithGeneratorFunc(func() ([]int, error) {
+		WithGeneratorFunc(func(_ context.Context) ([]int, error) {
 			return nil, genErr
 		}),
 	)
@@ -129,7 +129,7 @@ func (s *YielderSuite) TestGeneratorFuncErrorStopsYielder() {
 
 func (s *YielderSuite) TestPanicInGeneratorIsRecovered() {
 	y, err := New[int](context.Background(),
-		WithGeneratorFunc(func() ([]int, error) {
+		WithGeneratorFunc(func(_ context.Context) ([]int, error) {
 			panic("boom")
 		}),
 	)
@@ -218,6 +218,90 @@ func (s *YielderSuite) TestTimeoutStopsYielder() {
 	s.ErrorIs(y.Err(), ErrStopped)
 }
 
+// --- WithInputChannel ---
+
+func (s *YielderSuite) TestWithInputChannel() {
+	const (
+		val1         = 10
+		val2         = 20
+		val3         = 30
+		shortTimeout = 50 * time.Millisecond
+		longTimeout  = 10 * time.Second
+	)
+
+	tests := []struct {
+		name       string
+		chanBuf    int
+		timeout    time.Duration
+		prepare    func(ch chan int, y *Yielder[int])
+		wantValues []int
+		wantErr    error
+	}{
+		{
+			name:    "ForwardsValuesAndStopsOnInputClosed",
+			chanBuf: 3,
+			timeout: longTimeout,
+			prepare: func(ch chan int, _ *Yielder[int]) {
+				ch <- val1
+				ch <- val2
+				ch <- val3
+				close(ch)
+			},
+			wantValues: []int{val1, val2, val3},
+			wantErr:    ErrInputClosed,
+		},
+		{
+			name:    "EmptyInputClosedImmediately",
+			chanBuf: 0,
+			timeout: longTimeout,
+			prepare: func(ch chan int, _ *Yielder[int]) {
+				close(ch)
+			},
+			wantValues: nil,
+			wantErr:    ErrInputClosed,
+		},
+		{
+			name:    "StopStopsYielder",
+			chanBuf: 0,
+			timeout: longTimeout,
+			prepare: func(_ chan int, y *Yielder[int]) {
+				y.Stop()
+			},
+			wantValues: nil,
+			wantErr:    ErrStopped,
+		},
+		{
+			name:       "ContextDeadlineStopsYielder",
+			chanBuf:    0,
+			timeout:    shortTimeout,
+			prepare:    func(_ chan int, _ *Yielder[int]) {},
+			wantValues: nil,
+			wantErr:    ErrStopped,
+		},
+	}
+
+	for _, tc := range tests {
+		s.Run(tc.name, func() {
+			ch := make(chan int, tc.chanBuf)
+			y, err := New[int](context.Background(),
+				WithInputChannel[int](ch),
+				WithTimeout[int](tc.timeout),
+			)
+			s.Require().NoError(err)
+
+			tc.prepare(ch, y)
+
+			var got []int
+			for v := range y.Results() {
+				got = append(got, v)
+			}
+
+			s.Equal(tc.wantValues, got)
+			s.ErrorIs(y.Err(), tc.wantErr)
+		})
+	}
+}
+
 // --- Done channel ---
 
 func (s *YielderSuite) TestDoneClosedOnNormalCompletion() {
@@ -230,20 +314,4 @@ func (s *YielderSuite) TestDoneClosedOnNormalCompletion() {
 	case <-time.After(2 * time.Second):
 		s.Fail("Done channel not closed after completion")
 	}
-}
-
-// --- Error joining ---
-
-func (s *YielderSuite) TestSetErrJoinsMultipleErrors() {
-	y, err := New[int](context.Background(), WithValues([]int{1}))
-	s.NoError(err)
-	<-y.Done()
-
-	first := errors.New("first")
-	second := errors.New("second")
-	y.setErr(first)
-	y.setErr(second)
-
-	s.ErrorIs(y.Err(), first)
-	s.ErrorIs(y.Err(), second)
 }

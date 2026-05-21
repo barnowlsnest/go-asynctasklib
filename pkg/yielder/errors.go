@@ -5,7 +5,7 @@ import (
 )
 
 var (
-	ErrNil     = errors.New("err nil")
-	ErrTimeout = errors.New("timeout")
-	ErrStopped = errors.New("stopped")
+	ErrNil         = errors.New("err nil")
+	ErrStopped     = errors.New("stopped")
+	ErrInputClosed = errors.New("input closed")
 )
