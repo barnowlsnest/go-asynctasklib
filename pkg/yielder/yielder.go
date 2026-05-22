@@ -157,7 +157,7 @@ func (yr *Yielder[T]) Stop() {
 	yr.setErr(ErrStopped)
 }
 
-// StopErr stops the yielder with the provided error non nil error.
+// StopErr stops the yielder with the provided error.
 // If err is nil, it does nothing. It is safe to call multiple times.
 func (yr *Yielder[T]) StopErr(err error) {
 	if err == nil {
