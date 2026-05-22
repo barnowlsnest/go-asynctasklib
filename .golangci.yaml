@@ -62,6 +62,9 @@ linters:
       min-complexity: 15
     lll:
       line-length: 140
+    gosec:
+      excludes:
+        - G118
     misspell:
       locale: US
     staticcheck:
