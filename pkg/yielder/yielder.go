@@ -2,7 +2,6 @@ package yielder
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -20,11 +19,11 @@ const (
 type Yielder[T comparable] struct {
 	genChan  chan T
 	doneCh   chan struct{}
-	fn       func() ([]T, error)
+	fn       func(context.Context) ([]T, error)
+	cancel   context.CancelFunc
 	err      error
 	timeout  time.Duration
 	buf      int
-	mu       sync.Mutex
 	onceStop sync.Once
 }
 
@@ -48,7 +47,7 @@ func WithBuffer[T comparable](buf int) Option[T] {
 
 // WithGeneratorFunc sets the generator function that produces values.
 // The function is called once; returned values are emitted through the Results channel.
-func WithGeneratorFunc[T comparable](fn func() ([]T, error)) Option[T] {
+func WithGeneratorFunc[T comparable](fn func(context.Context) ([]T, error)) Option[T] {
 	return func(y *Yielder[T]) {
 		y.fn = fn
 	}
@@ -57,8 +56,31 @@ func WithGeneratorFunc[T comparable](fn func() ([]T, error)) Option[T] {
 // WithValues wraps a static slice into a generator function.
 func WithValues[T comparable](values []T) Option[T] {
 	return func(y *Yielder[T]) {
-		y.fn = func() ([]T, error) {
+		y.fn = func(_ context.Context) ([]T, error) {
 			return values, nil
+		}
+	}
+}
+
+func WithInputChannel[T comparable](input <-chan T) Option[T] {
+	return func(y *Yielder[T]) {
+		y.fn = func(ctx context.Context) ([]T, error) {
+			for {
+				select {
+				case <-ctx.Done():
+					return nil, ErrStopped
+				case val, ok := <-input:
+					if !ok {
+						return nil, ErrInputClosed
+					}
+
+					select {
+					case <-ctx.Done():
+						return nil, ErrStopped
+					case y.genChan <- val:
+					}
+				}
+			}
 		}
 	}
 }
@@ -72,8 +94,10 @@ func New[T comparable](ctx context.Context, opts ...Option[T]) (*Yielder[T], err
 		return nil, err
 	}
 
-	go generate[T](ctx, y)
-	go watchForTimeoutOrStop[T](ctx, y)
+	ctxWithCancel, cancel := context.WithTimeout(ctx, y.timeout)
+	y.cancel = cancel
+
+	go y.generate(ctxWithCancel)
 
 	return y, nil
 }
@@ -114,8 +138,6 @@ func (yr *Yielder[T]) Results() <-chan T {
 
 // Err returns accumulated errors from generation. Multiple errors are joined via errors.Join.
 func (yr *Yielder[T]) Err() error {
-	yr.mu.Lock()
-	defer yr.mu.Unlock()
 	return yr.err
 }
 
@@ -126,77 +148,52 @@ func (yr *Yielder[T]) Done() <-chan struct{} {
 }
 
 func (yr *Yielder[T]) setErr(err error) {
-	yr.mu.Lock()
-	defer yr.mu.Unlock()
-	if yr.err != nil {
-		yr.err = errors.Join(yr.err, err)
-		return
-	}
-
-	yr.err = err
+	yr.onceStop.Do(func() { yr.err = err })
 }
 
 // Stop stops the yielder. It is safe to call multiple times.
 func (yr *Yielder[T]) Stop() {
-	yr.onceStop.Do(func() {
-		close(yr.doneCh)
-	})
+	defer yr.cancel()
+	yr.setErr(ErrStopped)
 }
 
-// StopErr stops the yielder with the provided error, ensuring the error is recorded and the done channel is closed.
-// It is noop if err is nil
+// StopErr stops the yielder with the provided error.
+// If err is nil, it does nothing. It is safe to call multiple times.
 func (yr *Yielder[T]) StopErr(err error) {
 	if err == nil {
 		return
 	}
 
-	yr.onceStop.Do(func() {
-		close(yr.doneCh)
-		yr.setErr(err)
-	})
+	defer yr.cancel()
+	yr.setErr(fmt.Errorf("%w - %w", ErrStopped, err))
 }
 
-func generate[T comparable](ctx context.Context, y *Yielder[T]) {
-	defer close(y.genChan)
-	func(y *Yielder[T]) {
+func (yr *Yielder[T]) generate(ctx context.Context) {
+	defer close(yr.doneCh)
+
+	func(yr *Yielder[T]) {
 		defer func() {
 			if r := recover(); r != nil {
-				y.setErr(fmt.Errorf("err panic'ed generator func: %+v", r))
+				yr.setErr(fmt.Errorf("panic in generator func: %+v", r))
 			}
 
-			y.onceStop.Do(func() {
-				close(y.doneCh)
-			})
+			yr.cancel()
+			close(yr.genChan)
 		}()
 
-		values, errGen := y.fn()
+		values, errGen := yr.fn(ctx)
 		if errGen != nil {
-			y.setErr(fmt.Errorf("err func generator: %w", errGen))
+			yr.setErr(fmt.Errorf("err func generator: %w", errGen))
 			return
 		}
 
 		for _, val := range values {
 			select {
 			case <-ctx.Done():
-				y.setErr(ctx.Err())
+				yr.setErr(ErrStopped)
 				return
-			case <-y.doneCh:
-				y.setErr(ErrStopped)
-				return
-			case y.genChan <- val:
+			case yr.genChan <- val:
 			}
 		}
-	}(y)
-}
-
-func watchForTimeoutOrStop[T comparable](ctx context.Context, y *Yielder[T]) {
-	select {
-	case <-ctx.Done():
-		return
-	case <-y.doneCh:
-		return
-	case <-time.After(y.timeout):
-		y.StopErr(ErrTimeout)
-		return
-	}
+	}(yr)
 }
