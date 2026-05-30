@@ -3,6 +3,7 @@ module github.com/barnowlsnest/go-asynctasklib/v2
 go 1.26.1
 
 require (
+	github.com/google/uuid v1.6.0
 	github.com/stretchr/testify v1.11.1
 	go.uber.org/goleak v1.3.0
 	golang.org/x/sync v0.17.0
