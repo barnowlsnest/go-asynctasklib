@@ -17,11 +17,11 @@ const (
 type (
 	JobAttributes struct {
 		Name           string
+		MessageGroupId string
 		EnqueueAt      time.Time
 		ExpireDeadline time.Time
 		MaxRetries     int
 		RawDedupToken  []byte
-		MessageGroupId string
 	}
 
 	JobRun struct {
@@ -112,17 +112,6 @@ func (job *Job) RawPayload() []byte {
 
 func (job *Job) Attr() *JobAttributes {
 	return job.attr
-}
-
-// MessageGroupId returns the FIFO message group the job belongs to, or an
-// empty string when the job has no attributes. It is only meaningful for
-// queues in ModeFIFO.
-func (job *Job) MessageGroupId() string {
-	if job.attr == nil {
-		return ""
-	}
-
-	return job.attr.MessageGroupId
 }
 
 func (job *Job) Status() JobStatus {
