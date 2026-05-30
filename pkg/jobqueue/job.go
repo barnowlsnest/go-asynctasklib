@@ -16,12 +16,12 @@ const (
 
 type (
 	JobAttributes struct {
-		Name           string
-		MessageGroupId string
-		EnqueueAt      time.Time
-		ExpireDeadline time.Time
-		MaxRetries     int
-		RawDedupToken  []byte
+		name           string
+		messageGroupId string
+		enqueueAt      time.Time
+		expireDeadline time.Time
+		maxRetries     int
+		rawDedupToken  []byte
 	}
 
 	JobRun struct {
@@ -48,7 +48,8 @@ type (
 		rawPayload []byte
 	}
 
-	JobOptionFunc func(*Job)
+	JobOptionFunc     func(*Job)
+	JobAttrOptionFunc func(*JobAttributes)
 )
 
 func WithJobAttributes(attr *JobAttributes) JobOptionFunc {
@@ -92,6 +93,46 @@ func NewJob(seq uint64, opts ...JobOptionFunc) (*Job, error) {
 	}
 
 	return job, nil
+}
+
+func WithJobMessageGroupId(messageGroupId string) JobAttrOptionFunc {
+	return func(attr *JobAttributes) {
+		attr.messageGroupId = messageGroupId
+	}
+}
+
+func WithJobExpireDeadline(expireDeadline time.Time) JobAttrOptionFunc {
+	return func(attr *JobAttributes) {
+		attr.expireDeadline = expireDeadline
+	}
+}
+
+func WithJobEnqueueAt(enqueueAt time.Time) JobAttrOptionFunc {
+	return func(attr *JobAttributes) {
+		attr.enqueueAt = enqueueAt
+	}
+}
+
+func WithJobMaxRetries(maxRetries int) JobAttrOptionFunc {
+	return func(attr *JobAttributes) {
+		attr.maxRetries = maxRetries
+	}
+}
+
+func WithJobRawDedupToken(rawDedupToken []byte) JobAttrOptionFunc {
+	return func(attr *JobAttributes) {
+		attr.rawDedupToken = rawDedupToken
+	}
+}
+
+func NewJobAttributes(name string, opts ...JobAttrOptionFunc) *JobAttributes {
+	attr := &JobAttributes{name: name}
+
+	for _, opt := range opts {
+		opt(attr)
+	}
+
+	return attr
 }
 
 func (job *Job) Seq() uint64 {
@@ -182,11 +223,11 @@ func (job *Job) IsExpired(now time.Time) bool {
 		return false
 	}
 
-	if job.attr.ExpireDeadline.IsZero() {
+	if job.attr.expireDeadline.IsZero() {
 		return false
 	}
 
-	return job.attr.ExpireDeadline.Before(now)
+	return job.attr.expireDeadline.Before(now)
 }
 
 func (job *Job) IsVisible(now time.Time) bool {
@@ -230,6 +271,30 @@ func (run *JobRun) StartAt() time.Time {
 
 func (run *JobRun) EndAt() time.Time {
 	return run.endAt
+}
+
+func (attr *JobAttributes) Name() string {
+	return attr.name
+}
+
+func (attr *JobAttributes) MessageGroupId() string {
+	return attr.messageGroupId
+}
+
+func (attr *JobAttributes) EnqueueAt() time.Time {
+	return attr.enqueueAt
+}
+
+func (attr *JobAttributes) ExpireDeadline() time.Time {
+	return attr.expireDeadline
+}
+
+func (attr *JobAttributes) MaxRetries() int {
+	return attr.maxRetries
+}
+
+func (attr *JobAttributes) RawDedupToken() []byte {
+	return attr.rawDedupToken
 }
 
 func (attr *JobAttributes) validate() error {
