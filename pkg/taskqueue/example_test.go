@@ -41,8 +41,8 @@ func Example_basicUsage() {
 		return
 	}
 	defer func() {
-		if cerr := queue.Close(ctx); cerr != nil {
-			fmt.Println("close:", cerr)
+		if err := queue.Close(ctx); err != nil {
+			fmt.Println("close:", err)
 		}
 	}()
 
@@ -65,9 +65,9 @@ func Example_basicUsage() {
 			fmt.Println("dequeue:", err)
 			return
 		}
-		if err := claim.Task().Do(ctx); err != nil {
-			if nerr := claim.Nack(ctx, err); nerr != nil {
-				fmt.Println("nack:", nerr)
+		if runErr := claim.Task().Do(ctx); runErr != nil {
+			if nackErr := claim.Nack(ctx, runErr); nackErr != nil {
+				fmt.Println("nack:", nackErr)
 			}
 			continue
 		}
