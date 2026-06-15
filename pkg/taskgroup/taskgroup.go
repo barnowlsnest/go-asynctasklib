@@ -97,6 +97,7 @@ func (tg *TaskGroup) SubmitBatch(ctx context.Context, defs []task.Definition) ([
 		if err != nil {
 			return tasks, err
 		}
+
 		tasks = append(tasks, t)
 	}
 
@@ -139,6 +140,7 @@ func (tg *TaskGroup) Tasks() []*task.Task {
 
 	tasksCopy := make([]*task.Task, len(tg.tasks))
 	copy(tasksCopy, tg.tasks)
+
 	return tasksCopy
 }
 

@@ -58,6 +58,17 @@ Simple Go library for managing asynchronous tasks with context-aware execution, 
 - **Pluggable Events**: `PoolEvents[T]` observes every lifecycle transition (worker start/stop, subscribe, job ok/failed, leave timeout, dispatch error); embed `NoopEvents[T]` to override only the hooks you care about
 - **Two Shutdown Modes**: `Shutdown()` cancels in-flight work immediately; `GracefulShutdown()` drains the backlog first. Both are idempotent and reject post-shutdown submissions with `ErrPoolShutdown`
 
+### TaskQueue Package (`pkg/taskqueue`)
+
+- **Backend-Agnostic**: ordering and lease storage live behind a `Backend` interface; the in-memory default is ready to be swapped for a distributed/PostgreSQL backend (`SELECT ... FOR UPDATE SKIP LOCKED`) without coupling the library to any backend
+- **Priority or FIFO**: `ModePriority` orders by `Priority` descending with FIFO (`Seq`) tie-breaking; `ModeFIFO` orders strictly by `Seq` — selected by the user
+- **At-Least-Once Delivery**: claim/ack/nack lease model with a visibility timeout; a crash between claim and ack lets the lease expire and the task redeliver
+- **Attempt Tracking + DLQ**: the queue counts deliveries and auto-routes a task to a pluggable `DeadLetter` once it reaches `WithMaxAttempts` without an ack
+- **Background Reaper**: sweeps expired leases every `WithReapInterval`, requeuing or dead-lettering them per the same policy as `Nack`
+- **Two Consumer APIs**: blocking `Dequeue` for one-at-a-time consumers, plus a yielder-based `Stream` for pipelines
+- **Pluggable Events**: `QueueEvents` observes every transition (enqueue, claim, ack, nack, retry, dead-letter, lease expiry); embed `NoopQueueEvents` to override only the hooks you need
+- **Graceful Close**: `Close` stops the reaper and is idempotent; producer/consumer calls after close return `ErrQueueClosed`
+
 ## Installation
 
 go 1.26.1 or later
@@ -740,6 +751,83 @@ type PoolEvents[T any] interface {
 worker (typically `ErrSubmitTimeout` with no accepting worker). `NoopEvents[T]`
 implements every `PoolEvents[T]` method as a no-op so custom observers can
 embed it and override only the hooks they care about.
+
+### TaskQueue (`pkg/taskqueue`)
+
+**Constructor:**
+
+- `taskqueue.New(ctx, opts ...Option) (*Queue, error)` — construct a queue and start its background reaper. Returns `ErrInvalidQueue` (joined with detail) on a nil context, or `ctx.Err()` if `ctx` is already canceled. Defaults to an in-memory backend and dead-letter queue.
+
+**Options:**
+
+- `WithBackend(b Backend)` — custom ordered-storage backend (defaults to in-memory). When set, `WithMode` is ignored — ordering belongs to the backend
+- `WithMode(m Mode)` — `ModePriority` or `ModeFIFO` for the default in-memory backend
+- `WithDeadLetter(dl DeadLetter)` — custom dead-letter store (defaults to in-memory)
+- `WithMaxAttempts(n int)` — deliveries allowed before a task is dead-lettered (default 3)
+- `WithVisibilityTimeout(d time.Duration)` — how long a claimed task stays invisible before its lease expires (default 30s)
+- `WithReapInterval(d time.Duration)` — how often expired leases are swept (default 5s)
+- `WithEvents(e QueueEvents)` — lifecycle observer (defaults to `NoopQueueEvents`)
+
+**Queue Methods:**
+
+- `Enqueue(ctx, task Task) error` — store a task for ordered delivery
+- `Dequeue(ctx, timeout time.Duration) (*Claim, error)` — block until a task can be claimed or `timeout` elapses; returns `ErrQueueEmpty` on timeout, `ErrQueueClosed` after `Close`, or `ctx.Err()` on cancellation
+- `Stream(ctx, timeout time.Duration, buffer int) (*yielder.Yielder[*Claim], error)` — stream claims into a yielder; the caller controls the stream's lifetime through `ctx`
+- `Redrive(ctx, id uint64) error` — move a dead-lettered task back onto the queue; returns `ErrLeaseNotFound` if the DLQ has no such task
+- `DeadLetterLen(ctx) (int, error)` — number of dead-lettered tasks
+- `Close(ctx) error` — stop the reaper and wait for it to exit; idempotent
+
+**Claim Methods:**
+
+- `Task() Task` — the claimed task
+- `Ack(ctx) error` — mark the task done and remove it; a second settle returns `ErrClaimSettled`
+- `Nack(ctx, reason error) error` — report failure; the queue requeues, or dead-letters once `WithMaxAttempts` is reached
+
+**Interfaces:**
+
+```go
+type Task interface { // already defined alongside Lobby
+    Do(ctx context.Context) error
+    ID() uint64
+    Seq() uint64
+    Priority() Priority
+}
+
+type Backend interface {
+    Enqueue(ctx context.Context, task Task) error
+    Claim(ctx context.Context, visibility time.Duration) (Lease, error)
+    Ack(ctx context.Context, token string) error
+    Nack(ctx context.Context, token string, requeue bool) error
+    ReapExpired(ctx context.Context, now time.Time) ([]Lease, error)
+    Len(ctx context.Context) (int, error)
+}
+
+type DeadLetter interface {
+    Add(ctx context.Context, task Task, reason error) error
+    List(ctx context.Context, limit int) ([]DeadTask, error)
+    Remove(ctx context.Context, id uint64) error
+    Len(ctx context.Context) (int, error)
+}
+
+type Lease interface {
+    Token() string
+    Task() Task
+    Attempt() int
+    Deadline() time.Time
+}
+```
+
+`NewMemoryBackend(mode Mode)` and `NewMemoryDeadLetter()` are the in-memory defaults.
+
+**Errors:**
+
+- `ErrQueueEmpty` — nothing claimable before `Dequeue`'s timeout
+- `ErrQueueClosed` — producer/consumer call after `Close`
+- `ErrLeaseNotFound` — ack/nack with an unknown token, or `Redrive` of an absent ID
+- `ErrClaimSettled` — second `Ack`/`Nack` on the same claim
+- `ErrInvalidQueue` — bad construction (e.g. nil context), joined with detail
+- `ErrLeaseExpired` — dead-letter reason used when a lease expiry exhausts attempts
+- `ErrTaskNil` — nil task passed to `Enqueue`
 
 ## Architecture
 
