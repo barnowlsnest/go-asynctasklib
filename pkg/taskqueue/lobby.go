@@ -31,19 +31,9 @@ type (
 		Priority() Priority
 	}
 
-	Store interface {
-		UpsertTask(ctx context.Context, task Task) error
-		DeleteTask(ctx context.Context, task Task) error
-		GetTask(ctx context.Context, id uint64) (Task, error)
-		SelectTasksByPriority(ctx context.Context, priority Priority) ([]Task, error)
-		SelectNTasks(ctx context.Context, n int) ([]Task, error)
-		SelectTasksBySeqRange(ctx context.Context, start, end uint64) ([]Task, error)
-	}
-
 	Lobby struct {
 		incoming     chan Task
 		closeTimeout time.Duration
-		store        Store
 		onceClose    sync.Once
 		handoff      atomic.Pointer[yielder.Yielder[Task]]
 		closed       atomic.Bool
@@ -71,10 +61,6 @@ func (lobby *Lobby) SubmitTask(ctx context.Context, task Task, timeout time.Dura
 		return ErrLobbyClosed
 	case task == nil:
 		return ErrTaskNil
-	}
-
-	if err := lobby.store.UpsertTask(ctx, task); err != nil {
-		return err
 	}
 
 	select {
