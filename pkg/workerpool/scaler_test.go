@@ -1,7 +1,9 @@
 package workerpool
 
 import (
+	"context"
 	"runtime"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -9,13 +11,13 @@ import (
 )
 
 const (
-	testMinSize             = 1                      //nolint:unused // used by later tasks in this package
-	testMaxSize             = 4                      //nolint:unused // used by later tasks in this package
-	testScaleUpStep         = 1                      //nolint:unused // used by later tasks in this package
-	testIdleHeadroom        = 1                      //nolint:unused // used by later tasks in this package
-	testScalerInterval      = 100 * time.Millisecond //nolint:unused // used by later tasks in this package
-	testScaleDownCooldown   = 5 * time.Second        //nolint:unused // used by later tasks in this package
-	testScaleDownIdlePeriod = 2 * time.Second        //nolint:unused // used by later tasks in this package
+	testMinSize             = 1
+	testMaxSize             = 4
+	testScaleUpStep         = 1
+	testIdleHeadroom        = 1
+	testScalerInterval      = 100 * time.Millisecond
+	testScaleDownCooldown   = 5 * time.Second
+	testScaleDownIdlePeriod = 2 * time.Second
 )
 
 type ScalerTestSuite struct {
@@ -263,6 +265,141 @@ func (s *ScalerTestSuite) TestPickVictim() {
 			idx, ok := pickVictim(tc.candidates, now, idlePeriod)
 			s.Require().Equal(tc.expectedOK, ok)
 			s.Require().Equal(tc.expectedIdx, idx)
+		})
+	}
+}
+
+// autoScaleConfig builds a Config for an auto-scaling test pool.
+func autoScaleConfig(minSize, maxSize int) *Config {
+	return &Config{
+		Mode:      ModeAutoScale,
+		Backlog:   testBacklog,
+		RateLimit: testRateLimit,
+		ClaimsConfig: ClaimsConfig{
+			Name:          "scaler-test",
+			SubmitTimeout: testSubmitTimeout,
+		},
+		AutoScale: AutoScaleConfig{
+			MinSize:             minSize,
+			MaxSize:             maxSize,
+			ScaleUpStep:         testScaleUpStep,
+			IdleHeadroom:        testIdleHeadroom,
+			Interval:            testScalerInterval,
+			ScaleUpCooldown:     0,
+			ScaleDownCooldown:   testScaleDownCooldown,
+			ScaleDownIdlePeriod: testScaleDownIdlePeriod,
+		},
+	}
+}
+
+// manualClock is a test clock the test advances explicitly. It is seeded to real
+// wall-clock nanos so deltas against worker.LastActiveAt (real time.Now) hold.
+type manualClock struct {
+	nanos atomic.Int64
+}
+
+func newManualClock() *manualClock {
+	c := &manualClock{}
+	c.nanos.Store(time.Now().UnixNano())
+	return c
+}
+
+func (c *manualClock) now() int64 { return c.nanos.Load() }
+
+//nolint:unused // advance is used by Task 5 scale-down tests
+func (c *manualClock) advance(d time.Duration) { c.nanos.Add(int64(d)) }
+
+// newAutoPool builds a ModeAutoScale pool whose scaler is driven by the given
+// tick channel and clock instead of a real ticker.
+func (s *ScalerTestSuite) newAutoPool(
+	minSize, maxSize int,
+	h HandlerFunc[testJob],
+	tick <-chan time.Time,
+	clock *manualClock,
+) *WorkerPool[testJob] {
+	s.T().Helper()
+	pool, err := New[testJob](
+		context.Background(),
+		WithConfig[testJob](autoScaleConfig(minSize, maxSize)),
+		WithHandler[testJob](h),
+		WithEvents[testJob](NewNoopEvents[testJob]()),
+		withScalerClock[testJob](tick, clock.now),
+	)
+	s.Require().NoError(err)
+	return pool
+}
+
+func (s *ScalerTestSuite) TestAutoScaleStartsAtMinSize() {
+	tick := make(chan time.Time)
+	clock := newManualClock()
+	pool := s.newAutoPool(testMinSize, testMaxSize, NoopHandler[testJob], tick, clock)
+	defer pool.Shutdown()
+
+	s.Require().Equal(testMinSize, pool.JoinedCount())
+}
+
+func (s *ScalerTestSuite) TestAutoScaleScalesUpUnderBacklog() {
+	const submitted = 8
+	release := make(chan struct{})
+	h := func(ctx JobAware[testJob]) error {
+		<-release
+		return nil
+	}
+
+	tick := make(chan time.Time)
+	clock := newManualClock()
+	pool := s.newAutoPool(testMinSize, testMaxSize, h, tick, clock)
+
+	ctx := context.Background()
+	for i := range submitted {
+		s.Require().NoError(pool.Submit(ctx, &testJobImpl{i + 1, 0}))
+	}
+
+	// Drive ticks until the pool fills to MaxSize.
+	s.Require().Eventually(func() bool {
+		select {
+		case tick <- time.Now():
+		default:
+		}
+		return pool.JoinedCount() == testMaxSize
+	}, testScenarioBudget, preShutdownWarmup)
+
+	// Never exceeds MaxSize even with more ticks.
+	for range 3 {
+		tick <- time.Now()
+	}
+	s.Require().Equal(testMaxSize, pool.JoinedCount())
+
+	close(release)
+	pool.GracefulShutdown()
+}
+
+func (s *ScalerTestSuite) TestAutoScaleShutdownStopsScaler() {
+	cases := []struct {
+		name string
+		stop func(*WorkerPool[testJob])
+	}{
+		{name: "hard shutdown", stop: func(p *WorkerPool[testJob]) { p.Shutdown() }},
+		{name: "graceful shutdown", stop: func(p *WorkerPool[testJob]) { p.GracefulShutdown() }},
+	}
+
+	for _, tc := range cases {
+		s.Run(tc.name, func() {
+			tick := make(chan time.Time)
+			clock := newManualClock()
+			pool := s.newAutoPool(testMinSize, testMaxSize, NoopHandler[testJob], tick, clock)
+
+			done := make(chan struct{})
+			go func() {
+				tc.stop(pool)
+				close(done)
+			}()
+
+			select {
+			case <-done:
+			case <-time.After(testScenarioBudget):
+				s.FailNow("shutdown did not complete; scaler likely stuck")
+			}
 		})
 	}
 }

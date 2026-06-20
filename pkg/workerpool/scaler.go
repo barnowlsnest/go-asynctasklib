@@ -95,3 +95,82 @@ func pickVictim(candidates []idleCandidate, now int64, idlePeriod time.Duration)
 	}
 	return best, best != -1
 }
+
+// joinOneIdle subscribes the first not-yet-joined worker. It returns
+// ErrMaxPoolSize when no spare worker exists, which in normal operation cannot
+// happen (the up-decision gates joined < MaxSize and MaxSize workers are
+// pre-created); surfacing it makes that invariant violation visible rather than
+// silent. Only the scaler goroutine calls this.
+func (pool *WorkerPool[T]) joinOneIdle() error {
+	pool.mu.Lock()
+	var target *worker[T]
+	for _, candidate := range pool.workers {
+		if _, joined := pool.joinedIDs[candidate.ID()]; !joined {
+			target = candidate
+			break
+		}
+	}
+	pool.mu.Unlock()
+
+	if target == nil {
+		return ErrMaxPoolSize
+	}
+
+	if err := target.join(pool.ctx(), pool.availableWorkers); err != nil {
+		return err
+	}
+
+	pool.mu.Lock()
+	pool.joinedIDs[target.ID()] = struct{}{}
+	pool.mu.Unlock()
+	return nil
+}
+
+// runScaler is the autoscaler goroutine. It snapshots load each tick, asks
+// decide for an action, and applies it via join/leave. It owns lastUp/lastDown
+// (single goroutine, no synchronization) and exits on pool context cancel or
+// shutdown, closing scalerDone so close can safely reclaim workers.
+func (pool *WorkerPool[T]) runScaler(tick <-chan time.Time, now func() int64) {
+	defer close(pool.scalerDone)
+
+	cfg := pool.cfg.AutoScale
+	var lastUp, lastDown int64
+
+	for {
+		select {
+		case <-pool.ctx().Done():
+			return
+		case <-pool.shutdown:
+			return
+		case <-tick:
+			snap := snapshot{
+				joined:   pool.JoinedCount(),
+				idle:     pool.availableWorkers.PendingClaims(),
+				backlog:  len(pool.backlog),
+				now:      now(),
+				lastUp:   lastUp,
+				lastDown: lastDown,
+			}
+
+			switch action, step := decide(snap, cfg); action {
+			case up:
+				var added int
+				for range step {
+					if err := pool.joinOneIdle(); err != nil {
+						// ctx/shutdown failures resolve on the next select;
+						// other failures already fired SubscribeFailed. Stop
+						// the batch and do not advance the cooldown.
+						break
+					}
+					added++
+				}
+				if added > 0 {
+					lastUp = snap.now
+				}
+			case down:
+				// Implemented in Task 5; no-op until then.
+			case hold:
+			}
+		}
+	}
+}
