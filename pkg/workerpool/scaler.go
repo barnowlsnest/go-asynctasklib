@@ -168,9 +168,46 @@ func (pool *WorkerPool[T]) runScaler(tick <-chan time.Time, now func() int64) {
 					lastUp = snap.now
 				}
 			case down:
-				// Implemented in Task 5; no-op until then.
+				candidates, workers := pool.joinedCandidates()
+				if idx, ok := pickVictim(candidates, snap.now, cfg.ScaleDownIdlePeriod); ok {
+					// Unsubscribed even on LeaveTimeout (event already fired); a
+					// victim left the joined set, so advance the cooldown.
+					_ = pool.leaveOne(workers[idx])
+					lastDown = snap.now
+				}
 			case hold:
 			}
 		}
 	}
+}
+
+// joinedCandidates returns the currently joined workers as parallel slices: an
+// idleCandidate view for pickVictim and the concrete workers in the same order,
+// so the index pickVictim returns maps back to its worker.
+func (pool *WorkerPool[T]) joinedCandidates() ([]idleCandidate, []*worker[T]) {
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
+
+	candidates := make([]idleCandidate, 0, len(pool.joinedIDs))
+	workers := make([]*worker[T], 0, len(pool.joinedIDs))
+	for _, candidate := range pool.workers {
+		if _, joined := pool.joinedIDs[candidate.ID()]; joined {
+			candidates = append(candidates, candidate)
+			workers = append(workers, candidate)
+		}
+	}
+	return candidates, workers
+}
+
+// leaveOne unsubscribes target and removes it from the joined set. The worker is
+// removed from joinedIDs even when leave returns ErrWorkerTimeout, because leave
+// unsubscribes before waiting for the run loop; the LeaveTimeout event has
+// already fired in that case. Only the scaler goroutine calls this.
+func (pool *WorkerPool[T]) leaveOne(target *worker[T]) error {
+	err := target.leave(pool.availableWorkers, pool.cfg.SubmitTimeout)
+
+	pool.mu.Lock()
+	delete(pool.joinedIDs, target.ID())
+	pool.mu.Unlock()
+	return err
 }

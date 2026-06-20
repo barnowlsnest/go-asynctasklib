@@ -306,13 +306,12 @@ func newManualClock() *manualClock {
 
 func (c *manualClock) now() int64 { return c.nanos.Load() }
 
-//nolint:unused // advance is used by Task 5 scale-down tests
 func (c *manualClock) advance(d time.Duration) { c.nanos.Add(int64(d)) }
 
 // newAutoPool builds a ModeAutoScale pool whose scaler is driven by the given
 // tick channel and clock instead of a real ticker.
 func (s *ScalerTestSuite) newAutoPool(
-	minSize, maxSize int,
+	minSize, maxSize int, //nolint:unparam // minSize is always 1 today; kept for future tests with non-default floors
 	h HandlerFunc[testJob],
 	tick <-chan time.Time,
 	clock *manualClock,
@@ -400,6 +399,146 @@ func (s *ScalerTestSuite) TestAutoScaleShutdownStopsScaler() {
 			case <-time.After(testScenarioBudget):
 				s.FailNow("shutdown did not complete; scaler likely stuck")
 			}
+		})
+	}
+}
+
+// fillToMax drives ticks under load until the pool reaches maxSize.
+func (s *ScalerTestSuite) fillToMax(pool *WorkerPool[testJob], tick chan time.Time, maxSize int) {
+	s.T().Helper()
+	s.Require().Eventually(func() bool {
+		select {
+		case tick <- time.Now():
+		default:
+		}
+		return pool.JoinedCount() == maxSize
+	}, testScenarioBudget, preShutdownWarmup)
+}
+
+// TestAutoScaleScaleDown exercises the scale-down policy. Every case shares the
+// same prologue — build an auto pool, saturate it, and fill to MaxSize — then
+// runs a scenario-specific drive/assert phase. The handler is uniform across
+// cases: it signals enter (so a case can observe a running worker) and parks on
+// release. enter is buffered to fit every submitted job so no handler blocks on
+// the signal and leaks a goroutine past GracefulShutdown.
+func (s *ScalerTestSuite) TestAutoScaleScaleDown() {
+	const (
+		scaleDownSubmitted = 8
+		busyMinSize        = 1
+		busyMaxSize        = 3
+		// Saturate the busy pool with more jobs than workers so a worker stays
+		// pinned while the rest queue behind it.
+		busySubmitted = busyMaxSize + 2
+	)
+
+	cases := []struct {
+		name      string
+		minSize   int
+		maxSize   int
+		submitted int
+		// run drives the already-filled pool through the scenario and asserts.
+		// It must close release before returning so handlers can finish.
+		run func(pool *WorkerPool[testJob], tick chan time.Time, clock *manualClock, release, enter chan struct{})
+	}{
+		{
+			name:      "settles to MinSize when idle",
+			minSize:   testMinSize,
+			maxSize:   testMaxSize,
+			submitted: scaleDownSubmitted,
+			run: func(pool *WorkerPool[testJob], tick chan time.Time, clock *manualClock, release, _ chan struct{}) {
+				// Let every handler finish so all workers go idle and backlog empties.
+				close(release)
+				s.Require().Eventually(func() bool {
+					return pool.availableWorkers.PendingClaims() == testMaxSize
+				}, testScenarioBudget, preShutdownWarmup)
+
+				// Advance past idle period AND down-cooldown each iteration so each
+				// tick can shed one worker, until the pool settles at MinSize.
+				s.Require().Eventually(func() bool {
+					clock.advance(testScaleDownCooldown + testScaleDownIdlePeriod)
+					select {
+					case tick <- time.Now():
+					default:
+					}
+					return pool.JoinedCount() == testMinSize
+				}, testScenarioBudget, preShutdownWarmup)
+
+				// Never drops below MinSize with further ticks.
+				for range 3 {
+					clock.advance(testScaleDownCooldown + testScaleDownIdlePeriod)
+					tick <- time.Now()
+				}
+				s.Require().Equal(testMinSize, pool.JoinedCount())
+			},
+		},
+		{
+			name:      "never leaves a busy worker",
+			minSize:   busyMinSize,
+			maxSize:   busyMaxSize,
+			submitted: busySubmitted,
+			run: func(pool *WorkerPool[testJob], tick chan time.Time, clock *manualClock, release, enter chan struct{}) {
+				// Wait until a worker is actually running the blocking handler.
+				select {
+				case <-enter:
+				case <-time.After(testScenarioBudget):
+					s.FailNow("no worker entered the handler")
+				}
+
+				// Try hard to scale down; the busy worker keeps the pool above the
+				// floor (MinSize plus the one pinned worker).
+				for range 10 {
+					clock.advance(testScaleDownCooldown + testScaleDownIdlePeriod)
+					tick <- time.Now()
+					s.Require().GreaterOrEqual(pool.JoinedCount(), busyMinSize+1)
+				}
+
+				close(release)
+			},
+		},
+		{
+			name:      "cooldown prevents flapping",
+			minSize:   testMinSize,
+			maxSize:   testMaxSize,
+			submitted: scaleDownSubmitted,
+			run: func(pool *WorkerPool[testJob], tick chan time.Time, clock *manualClock, release, _ chan struct{}) {
+				close(release)
+				s.Require().Eventually(func() bool {
+					return pool.availableWorkers.PendingClaims() == testMaxSize
+				}, testScenarioBudget, preShutdownWarmup)
+
+				// Advance past the idle period but NOT the down-cooldown, then tick
+				// many times: at most one worker may be shed; the cooldown gates rest.
+				clock.advance(testScaleDownIdlePeriod + time.Millisecond)
+				before := pool.JoinedCount()
+				for range 5 {
+					tick <- time.Now()
+				}
+				s.Require().GreaterOrEqual(pool.JoinedCount(), before-1)
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		s.Run(tc.name, func() {
+			tick := make(chan time.Time)
+			clock := newManualClock()
+			release := make(chan struct{})
+			enter := make(chan struct{}, tc.submitted)
+			handler := func(_ JobAware[testJob]) error {
+				enter <- struct{}{}
+				<-release
+				return nil
+			}
+
+			pool := s.newAutoPool(tc.minSize, tc.maxSize, handler, tick, clock)
+			ctx := context.Background()
+			for i := range tc.submitted {
+				s.Require().NoError(pool.Submit(ctx, &testJobImpl{i + 1, 0}))
+			}
+			s.fillToMax(pool, tick, tc.maxSize)
+
+			tc.run(pool, tick, clock, release, enter)
+			pool.GracefulShutdown()
 		})
 	}
 }
