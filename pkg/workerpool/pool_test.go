@@ -155,6 +155,17 @@ func (s *PoolTestSuite) TestInvalidConfig() {
 			}(),
 			wantErr: ErrInvalidPool,
 		},
+		{
+			name: "auto-scale min above max",
+			ctx:  context.Background(),
+			opts: func() []PoolOptionFunc[testJob] {
+				cfg := validCfg()
+				cfg.Mode = ModeAutoScale
+				cfg.AutoScale = AutoScaleConfig{MinSize: 5, MaxSize: 4}
+				return []PoolOptionFunc[testJob]{WithConfig[testJob](cfg), WithHandler[testJob](NoopHandler[testJob])}
+			}(),
+			wantErr: ErrInvalidPool,
+		},
 	}
 
 	for _, tc := range cases {
@@ -165,6 +176,34 @@ func (s *PoolTestSuite) TestInvalidConfig() {
 			s.Nil(pool)
 		})
 	}
+}
+
+// TestFixedSizeJoinedCountConstant locks in that ModeFixedSize never changes its
+// joined worker count — there is no scaler goroutine to move it.
+func (s *PoolTestSuite) TestFixedSizeJoinedCountConstant() {
+	const fixedWorkers = 3
+	const stableWindow = 500 * time.Millisecond
+	release := make(chan struct{})
+	h := func(ctx JobAware[testJob]) error {
+		<-release
+		return nil
+	}
+
+	pool := s.newPool(fixedWorkers, testBacklog, h)
+	s.Require().Equal(fixedWorkers, pool.JoinedCount())
+
+	ctx := context.Background()
+	for i := range fixedWorkers {
+		s.Require().NoError(pool.Submit(ctx, &testJobImpl{i + 1, 0}))
+	}
+
+	// Under load and over time, the joined count stays fixed.
+	s.Require().Never(func() bool {
+		return pool.JoinedCount() != fixedWorkers
+	}, stableWindow, preShutdownWarmup)
+
+	close(release)
+	pool.GracefulShutdown()
 }
 
 func (s *PoolTestSuite) TestSubmitRejection() {

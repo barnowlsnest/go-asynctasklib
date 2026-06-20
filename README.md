@@ -492,6 +492,39 @@ func main() {
 }
 ```
 
+### Worker Pool — Auto-scaling
+
+`ModeAutoScale` keeps the number of joined workers between `MinSize` and
+`MaxSize` based on load. In auto mode `MaxSize` is the ceiling — it sizes the
+claims buffer, the subscriber cap, and the rate-limiter burst — and
+`ClaimsConfig.Size` is ignored.
+
+```go
+pool, err := workerpool.New[int](context.Background(),
+    workerpool.WithConfig[int](&workerpool.Config{
+        Mode: workerpool.ModeAutoScale,
+        AutoScale: workerpool.AutoScaleConfig{
+            MinSize:             1,
+            MaxSize:             8,
+            ScaleUpStep:         1,
+            Interval:            100 * time.Millisecond,
+            IdleHeadroom:        1,
+            ScaleDownCooldown:   5 * time.Second,
+            ScaleDownIdlePeriod: 2 * time.Second, // tune to >= 2x handler p99
+        },
+    }),
+    workerpool.WithHandler[int](handler),
+)
+```
+
+The pool scales **up fast** (it may add `ScaleUpStep` workers every `Interval`
+while the backlog is non-empty and idle headroom is exhausted) and **down slow**
+(at most one worker per `ScaleDownCooldown`, and only workers that have been
+idle for at least `ScaleDownIdlePeriod`). It never leaves a worker that is
+running a job, and it never drops below `MinSize` except during shutdown. Every
+numeric field defaults sensibly when left zero (`MaxSize` → `runtime.NumCPU()`,
+`MinSize` → 1).
+
 ### Worker Pool — Observing Events
 
 Pass a `PoolEvents[T]` implementation to observe worker lifecycle and job
