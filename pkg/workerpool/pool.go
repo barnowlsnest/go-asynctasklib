@@ -17,8 +17,8 @@ import (
 // It is always joined with a second error explaining the specific failure.
 var ErrInvalidPool = errors.New("invalid pool configuration")
 
-// Mode selects the pool's scaling strategy. Currently only ModeFixedSize
-// is implemented; values are reserved for future auto-scaling modes.
+// Mode selects the pool's scaling strategy: ModeFixedSize keeps a constant
+// worker count, ModeAutoScale varies it between MinSize and MaxSize with load.
 type Mode int
 
 const (
@@ -54,10 +54,12 @@ type (
 		DispatchError(error, T)
 	}
 
-	// WorkerPool is a generic, fixed-size pool of worker goroutines that
-	// dispatches submitted jobs via a claims-based rendezvous channel.
-	// Construct with New; drive with Submit; tear down with Shutdown or
-	// GracefulShutdown. All exported methods are safe for concurrent use.
+	// WorkerPool is a generic pool of worker goroutines — fixed-size
+	// (ModeFixedSize) or auto-scaling between MinSize and MaxSize
+	// (ModeAutoScale) — that dispatches submitted jobs via a claims-based
+	// rendezvous channel. Construct with New; drive with Submit; tear down with
+	// Shutdown or GracefulShutdown. All exported methods are safe for
+	// concurrent use.
 	WorkerPool[T any] struct {
 		onceClose        sync.Once
 		err              atomic.Pointer[error]
@@ -87,8 +89,9 @@ type (
 	// can be set directly on the same literal.
 	Config struct {
 		ClaimsConfig
-		// Mode selects the pool's scaling strategy. Only ModeFixedSize
-		// is currently implemented and is the default.
+		// Mode selects the pool's scaling strategy. ModeFixedSize (the
+		// default) keeps a constant worker count; ModeAutoScale varies it
+		// between AutoScale.MinSize and AutoScale.MaxSize with load.
 		Mode Mode
 		// RateLimit caps submissions per second accepted into the backlog.
 		// Defaults to 750 when unset. Enforced by a token-bucket limiter
@@ -221,9 +224,11 @@ func withScalerClock[T any](tick <-chan time.Time, now func() int64) PoolOptionF
 }
 
 // New constructs a WorkerPool bound to ctx. It applies the given options,
-// validates the configuration, creates the worker set, subscribes every
-// worker to the claims dispatcher, and starts the dispatch loop. The
-// returned pool is ready to accept Submit calls. Canceling ctx, calling
+// validates the configuration, creates the worker set, subscribes the initial
+// workers to the claims dispatcher, and starts the dispatch loop. In
+// ModeFixedSize all workers are subscribed; in ModeAutoScale only MinSize are,
+// and New also starts the scaler goroutine that adjusts the count with load.
+// The returned pool is ready to accept Submit calls. Canceling ctx, calling
 // Shutdown, or calling GracefulShutdown tears the pool down.
 //
 // WithConfig and WithHandler are required. New returns ErrInvalidPool
