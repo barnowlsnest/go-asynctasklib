@@ -3,6 +3,8 @@ package workerpool
 import (
 	"context"
 	"errors"
+	"fmt"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -23,11 +25,22 @@ const (
 	// ModeFixedSize keeps all configured workers subscribed for the entire
 	// pool lifetime. Worker count never changes after New returns.
 	ModeFixedSize Mode = iota
+	// ModeAutoScale keeps the number of joined workers between
+	// AutoScaleConfig.MinSize and AutoScaleConfig.MaxSize based on load.
+	ModeAutoScale
 )
 
 const (
 	defaultRate    = 750
 	defaultBacklog = 1000
+)
+
+const (
+	defaultScaleUpStep         = 1
+	defaultScalerInterval      = 100 * time.Millisecond
+	defaultIdleHeadroom        = 1
+	defaultScaleDownCooldown   = 5 * time.Second
+	defaultScaleDownIdlePeriod = 2 * time.Second
 )
 
 type (
@@ -83,12 +96,46 @@ type (
 		// up to ClaimsConfig.SubmitTimeout before returning
 		// ErrSubmitTimeout.
 		Backlog int
+		// AutoScale tunes ModeAutoScale. It is ignored unless Mode is
+		// ModeAutoScale. In auto mode MaxSize is the ceiling: it sizes the
+		// claims buffer, the subscriber cap, and the rate-limiter burst, and
+		// ClaimsConfig.Size is ignored.
+		AutoScale AutoScaleConfig
 	}
 
 	// PoolOptionFunc configures a WorkerPool during New. Helpers like
 	// WithConfig, WithHandler, and WithEvents return instances; callers
 	// rarely need to write their own.
 	PoolOptionFunc[T any] func(*WorkerPool[T])
+
+	// AutoScaleConfig tunes ModeAutoScale. Zero or negative numeric fields
+	// are replaced with defaults by applyDefaults; the only hard error is
+	// MinSize greater than MaxSize.
+	AutoScaleConfig struct {
+		// MinSize is the floor of joined workers. The pool never drops below
+		// it except during shutdown. Defaults to 1.
+		MinSize int
+		// MaxSize is the ceiling of joined workers and sizes the claims
+		// buffer, subscriber cap, and rate burst. Defaults to runtime.NumCPU.
+		MaxSize int
+		// ScaleUpStep is the number of workers added per up-decision.
+		// Defaults to 1.
+		ScaleUpStep int
+		// IdleHeadroom is the number of spare idle workers the pool tries to
+		// keep. Defaults to 1.
+		IdleHeadroom int
+		// Interval is the scaler tick period. Defaults to 100ms.
+		Interval time.Duration
+		// ScaleUpCooldown is the minimum gap between up-decisions. Defaults
+		// to 0 (may scale up every tick).
+		ScaleUpCooldown time.Duration
+		// ScaleDownCooldown is the minimum gap between down-decisions.
+		// Defaults to 5s.
+		ScaleDownCooldown time.Duration
+		// ScaleDownIdlePeriod is how long a worker must be idle before it is
+		// eligible for removal. Defaults to 2s; tune to >= 2x handler p99.
+		ScaleDownIdlePeriod time.Duration
+	}
 )
 
 func (cfg *Config) applyDefaults() {
@@ -100,6 +147,40 @@ func (cfg *Config) applyDefaults() {
 	if cfg.Backlog <= 0 {
 		cfg.Backlog = defaultBacklog
 	}
+}
+
+func (cfg *AutoScaleConfig) applyDefaults() {
+	if cfg.MaxSize <= 0 {
+		cfg.MaxSize = runtime.NumCPU()
+	}
+	if cfg.MinSize <= 0 {
+		cfg.MinSize = 1
+	}
+	if cfg.ScaleUpStep <= 0 {
+		cfg.ScaleUpStep = defaultScaleUpStep
+	}
+	if cfg.IdleHeadroom <= 0 {
+		cfg.IdleHeadroom = defaultIdleHeadroom
+	}
+	if cfg.Interval <= 0 {
+		cfg.Interval = defaultScalerInterval
+	}
+	if cfg.ScaleUpCooldown < 0 {
+		cfg.ScaleUpCooldown = 0
+	}
+	if cfg.ScaleDownCooldown <= 0 {
+		cfg.ScaleDownCooldown = defaultScaleDownCooldown
+	}
+	if cfg.ScaleDownIdlePeriod <= 0 {
+		cfg.ScaleDownIdlePeriod = defaultScaleDownIdlePeriod
+	}
+}
+
+func (cfg *AutoScaleConfig) validate() error {
+	if cfg.MinSize > cfg.MaxSize {
+		return fmt.Errorf("MinSize %d exceeds MaxSize %d", cfg.MinSize, cfg.MaxSize)
+	}
+	return nil
 }
 
 // WithConfig sets the pool's Config. It is required: New returns
