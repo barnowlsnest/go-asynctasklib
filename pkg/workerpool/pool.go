@@ -3,6 +3,8 @@ package workerpool
 import (
 	"context"
 	"errors"
+	"fmt"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -15,19 +17,30 @@ import (
 // It is always joined with a second error explaining the specific failure.
 var ErrInvalidPool = errors.New("invalid pool configuration")
 
-// Mode selects the pool's scaling strategy. Currently only ModeFixedSize
-// is implemented; values are reserved for future auto-scaling modes.
+// Mode selects the pool's scaling strategy: ModeFixedSize keeps a constant
+// worker count, ModeAutoScale varies it between MinSize and MaxSize with load.
 type Mode int
 
 const (
 	// ModeFixedSize keeps all configured workers subscribed for the entire
 	// pool lifetime. Worker count never changes after New returns.
 	ModeFixedSize Mode = iota
+	// ModeAutoScale keeps the number of joined workers between
+	// AutoScaleConfig.MinSize and AutoScaleConfig.MaxSize based on load.
+	ModeAutoScale
 )
 
 const (
 	defaultRate    = 750
 	defaultBacklog = 1000
+)
+
+const (
+	defaultScaleUpStep         = 1
+	defaultScalerInterval      = 100 * time.Millisecond
+	defaultIdleHeadroom        = 1
+	defaultScaleDownCooldown   = 5 * time.Second
+	defaultScaleDownIdlePeriod = 2 * time.Second
 )
 
 type (
@@ -41,10 +54,12 @@ type (
 		DispatchError(error, T)
 	}
 
-	// WorkerPool is a generic, fixed-size pool of worker goroutines that
-	// dispatches submitted jobs via a claims-based rendezvous channel.
-	// Construct with New; drive with Submit; tear down with Shutdown or
-	// GracefulShutdown. All exported methods are safe for concurrent use.
+	// WorkerPool is a generic pool of worker goroutines — fixed-size
+	// (ModeFixedSize) or auto-scaling between MinSize and MaxSize
+	// (ModeAutoScale) — that dispatches submitted jobs via a claims-based
+	// rendezvous channel. Construct with New; drive with Submit; tear down with
+	// Shutdown or GracefulShutdown. All exported methods are safe for
+	// concurrent use.
 	WorkerPool[T any] struct {
 		onceClose        sync.Once
 		err              atomic.Pointer[error]
@@ -62,6 +77,9 @@ type (
 		availableWorkers *claims[T]
 		handler          HandlerFunc[T]
 		events           PoolEvents[T]
+		scalerDone       chan struct{}    // closed when runScaler exits; nil in fixed mode
+		tickSource       <-chan time.Time // injected scaler tick (tests); nil -> real ticker
+		nowFn            func() int64     // injected clock (tests); nil -> time.Now().UnixNano
 	}
 
 	// Config aggregates the tunables that shape a WorkerPool's runtime
@@ -71,8 +89,9 @@ type (
 	// can be set directly on the same literal.
 	Config struct {
 		ClaimsConfig
-		// Mode selects the pool's scaling strategy. Only ModeFixedSize
-		// is currently implemented and is the default.
+		// Mode selects the pool's scaling strategy. ModeFixedSize (the
+		// default) keeps a constant worker count; ModeAutoScale varies it
+		// between AutoScale.MinSize and AutoScale.MaxSize with load.
 		Mode Mode
 		// RateLimit caps submissions per second accepted into the backlog.
 		// Defaults to 750 when unset. Enforced by a token-bucket limiter
@@ -83,12 +102,46 @@ type (
 		// up to ClaimsConfig.SubmitTimeout before returning
 		// ErrSubmitTimeout.
 		Backlog int
+		// AutoScale tunes ModeAutoScale. It is ignored unless Mode is
+		// ModeAutoScale. In auto mode MaxSize is the ceiling: it sizes the
+		// claims buffer, the subscriber cap, and the rate-limiter burst, and
+		// ClaimsConfig.Size is ignored.
+		AutoScale AutoScaleConfig
 	}
 
 	// PoolOptionFunc configures a WorkerPool during New. Helpers like
 	// WithConfig, WithHandler, and WithEvents return instances; callers
 	// rarely need to write their own.
 	PoolOptionFunc[T any] func(*WorkerPool[T])
+
+	// AutoScaleConfig tunes ModeAutoScale. Zero or negative numeric fields
+	// are replaced with defaults by applyDefaults; the only hard error is
+	// MinSize greater than MaxSize.
+	AutoScaleConfig struct {
+		// MinSize is the floor of joined workers. The pool never drops below
+		// it except during shutdown. Defaults to 1.
+		MinSize int
+		// MaxSize is the ceiling of joined workers and sizes the claims
+		// buffer, subscriber cap, and rate burst. Defaults to runtime.NumCPU.
+		MaxSize int
+		// ScaleUpStep is the number of workers added per up-decision.
+		// Defaults to 1.
+		ScaleUpStep int
+		// IdleHeadroom is the number of spare idle workers the pool tries to
+		// keep. Defaults to 1.
+		IdleHeadroom int
+		// Interval is the scaler tick period. Defaults to 100ms.
+		Interval time.Duration
+		// ScaleUpCooldown is the minimum gap between up-decisions. Defaults
+		// to 0 (may scale up every tick).
+		ScaleUpCooldown time.Duration
+		// ScaleDownCooldown is the minimum gap between down-decisions.
+		// Defaults to 5s.
+		ScaleDownCooldown time.Duration
+		// ScaleDownIdlePeriod is how long a worker must be idle before it is
+		// eligible for removal. Defaults to 2s; tune to >= 2x handler p99.
+		ScaleDownIdlePeriod time.Duration
+	}
 )
 
 func (cfg *Config) applyDefaults() {
@@ -100,6 +153,40 @@ func (cfg *Config) applyDefaults() {
 	if cfg.Backlog <= 0 {
 		cfg.Backlog = defaultBacklog
 	}
+}
+
+func (cfg *AutoScaleConfig) applyDefaults() {
+	if cfg.MaxSize <= 0 {
+		cfg.MaxSize = runtime.NumCPU()
+	}
+	if cfg.MinSize <= 0 {
+		cfg.MinSize = 1
+	}
+	if cfg.ScaleUpStep <= 0 {
+		cfg.ScaleUpStep = defaultScaleUpStep
+	}
+	if cfg.IdleHeadroom <= 0 {
+		cfg.IdleHeadroom = defaultIdleHeadroom
+	}
+	if cfg.Interval <= 0 {
+		cfg.Interval = defaultScalerInterval
+	}
+	if cfg.ScaleUpCooldown < 0 {
+		cfg.ScaleUpCooldown = 0
+	}
+	if cfg.ScaleDownCooldown <= 0 {
+		cfg.ScaleDownCooldown = defaultScaleDownCooldown
+	}
+	if cfg.ScaleDownIdlePeriod <= 0 {
+		cfg.ScaleDownIdlePeriod = defaultScaleDownIdlePeriod
+	}
+}
+
+func (cfg *AutoScaleConfig) validate() error {
+	if cfg.MinSize > cfg.MaxSize {
+		return fmt.Errorf("MinSize %d exceeds MaxSize %d", cfg.MinSize, cfg.MaxSize)
+	}
+	return nil
 }
 
 // WithConfig sets the pool's Config. It is required: New returns
@@ -126,10 +213,22 @@ func WithEvents[T any](events PoolEvents[T]) PoolOptionFunc[T] {
 	}
 }
 
+// withScalerClock injects the scaler's tick source and clock for deterministic
+// tests. Production code never sets these; New falls back to a real time.Ticker
+// and time.Now when they are nil.
+func withScalerClock[T any](tick <-chan time.Time, now func() int64) PoolOptionFunc[T] {
+	return func(pool *WorkerPool[T]) {
+		pool.tickSource = tick
+		pool.nowFn = now
+	}
+}
+
 // New constructs a WorkerPool bound to ctx. It applies the given options,
-// validates the configuration, creates the worker set, subscribes every
-// worker to the claims dispatcher, and starts the dispatch loop. The
-// returned pool is ready to accept Submit calls. Canceling ctx, calling
+// validates the configuration, creates the worker set, subscribes the initial
+// workers to the claims dispatcher, and starts the dispatch loop. In
+// ModeFixedSize all workers are subscribed; in ModeAutoScale only MinSize are,
+// and New also starts the scaler goroutine that adjusts the count with load.
+// The returned pool is ready to accept Submit calls. Canceling ctx, calling
 // Shutdown, or calling GracefulShutdown tears the pool down.
 //
 // WithConfig and WithHandler are required. New returns ErrInvalidPool
@@ -168,6 +267,18 @@ func New[T any](ctx context.Context, opts ...PoolOptionFunc[T]) (*WorkerPool[T],
 	}
 
 	pool.cfg.applyDefaults()
+
+	if pool.cfg.Mode == ModeAutoScale {
+		pool.cfg.AutoScale.applyDefaults()
+		if err := pool.cfg.AutoScale.validate(); err != nil {
+			cancel()
+			return nil, errors.Join(ErrInvalidPool, err)
+		}
+		// MaxSize is the ceiling: size the claims buffer, subscriber cap, and
+		// rate burst to it. ClaimsConfig.Size is ignored in auto mode.
+		pool.cfg.Size = pool.cfg.AutoScale.MaxSize
+	}
+
 	workClaims, err := newClaims[T](&pool.cfg.ClaimsConfig)
 	if err != nil {
 		cancel()
@@ -186,7 +297,10 @@ func New[T any](ctx context.Context, opts ...PoolOptionFunc[T]) (*WorkerPool[T],
 	switch pool.cfg.Mode {
 	case ModeFixedSize:
 		initialJoin = pool.cfg.Size
+	case ModeAutoScale:
+		initialJoin = pool.cfg.AutoScale.MinSize
 	default:
+		cancel()
 		return nil, errors.Join(ErrInvalidPool, errors.New("invalid mode"))
 	}
 
@@ -196,6 +310,10 @@ func New[T any](ctx context.Context, opts ...PoolOptionFunc[T]) (*WorkerPool[T],
 	}
 
 	go pool.dispatcher()
+
+	if pool.cfg.Mode == ModeAutoScale {
+		pool.startScaler()
+	}
 
 	return pool, nil
 }
@@ -231,6 +349,29 @@ func (pool *WorkerPool[T]) joinInitial(n int) error {
 	return nil
 }
 
+// startScaler spawns the autoscaler goroutine. It uses the injected tick source
+// and clock when present (tests) and otherwise a real time.Ticker and time.Now.
+// The ticker is stopped when the scaler returns.
+func (pool *WorkerPool[T]) startScaler() {
+	pool.scalerDone = make(chan struct{})
+
+	now := pool.nowFn
+	if now == nil {
+		now = func() int64 { return time.Now().UnixNano() }
+	}
+
+	if pool.tickSource != nil {
+		go pool.runScaler(pool.tickSource, now)
+		return
+	}
+
+	ticker := time.NewTicker(pool.cfg.AutoScale.Interval)
+	go func() {
+		defer ticker.Stop()
+		pool.runScaler(ticker.C, now)
+	}()
+}
+
 // Shutdown cancels the pool context immediately and returns once the
 // dispatcher has exited. In-flight handlers observe cancellation through
 // their JobAware argument; jobs still sitting in the backlog are dropped.
@@ -260,6 +401,9 @@ func (pool *WorkerPool[T]) close(shouldDrain bool) {
 		}
 
 		<-pool.drained
+		if pool.cfg.Mode == ModeAutoScale {
+			<-pool.scalerDone
+		}
 		pool.mu.Lock()
 		joined := make([]*worker[T], 0, len(pool.joinedIDs))
 		for _, w := range pool.workers {

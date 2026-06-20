@@ -1,4 +1,5 @@
-// Package workerpool provides a generic, fixed-size pool of goroutines
+// Package workerpool provides a generic pool of worker goroutines — fixed-size
+// (ModeFixedSize) or auto-scaling between MinSize and MaxSize (ModeAutoScale) —
 // that dispatch submitted jobs to the first idle worker via a claims-based
 // rendezvous channel. It is intended as a building block for services that
 // need bounded concurrency, backpressure, and predictable shutdown.
@@ -17,12 +18,20 @@
 //
 // [Config] controls the three knobs that matter operationally:
 //
-//   - ClaimsConfig.Size — number of worker goroutines (fixed in
-//     ModeFixedSize). Defaults to runtime.NumCPU.
+//   - ClaimsConfig.Size — number of worker goroutines in ModeFixedSize.
+//     Defaults to runtime.NumCPU. Ignored in ModeAutoScale, where
+//     AutoScaleConfig.MaxSize is the ceiling.
+//   - AutoScale — in ModeAutoScale, keeps joined workers between MinSize and
+//     MaxSize based on backlog pressure and idle headroom. Scales up fast
+//     (every tick under load) and down slow (one worker per ScaleDownCooldown,
+//     and only workers idle for at least ScaleDownIdlePeriod). Set
+//     ScaleDownIdlePeriod to >= 2x your handler p99 so a worker that just
+//     finished is not immediately reaped.
 //   - Backlog — buffered depth of the internal job channel. Submit blocks
 //     on a full backlog up to ClaimsConfig.SubmitTimeout.
 //   - RateLimit — jobs per second accepted into the backlog. Enforced by a
-//     token-bucket limiter with burst equal to ClaimsConfig.Size.
+//     token-bucket limiter with burst equal to the worker ceiling
+//     (ClaimsConfig.Size in fixed mode, AutoScaleConfig.MaxSize in auto mode).
 //
 // # Events
 //
