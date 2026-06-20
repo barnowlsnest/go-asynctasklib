@@ -14,12 +14,12 @@ type snapshot struct {
 	lastDown int64 // unix nanos of the last applied scale-down
 }
 
-// decision is the action decide returns for a tick.
+// decision is the action decision returns for a tick.
 type decision int
 
 const (
 	hold decision = iota // do nothing this tick
-	up                   // add workers (see returned step)
+	up                   // add workers (see a returned step)
 	down                 // remove one worker
 )
 
@@ -39,13 +39,14 @@ func decide(s snapshot, cfg AutoScaleConfig) (action decision, workers int) {
 	}
 }
 
-// shouldScaleUp reports whether load justifies adding workers: there is room
+// shouldScaleUp reports whether a load justifies adding workers: there is room
 // below MaxSize, work is queued with too little idle headroom to absorb it, and
 // the scale-up cooldown has elapsed.
 func (s snapshot) shouldScaleUp(cfg AutoScaleConfig) bool {
 	belowCeiling := s.joined < cfg.MaxSize
 	underPressure := s.backlog > 0 && s.idle <= cfg.IdleHeadroom
 	cooldownElapsed := s.now-s.lastUp >= cfg.ScaleUpCooldown.Nanoseconds()
+
 	return belowCeiling && underPressure && cooldownElapsed
 }
 
@@ -56,6 +57,7 @@ func (s snapshot) shouldScaleDown(cfg AutoScaleConfig) bool {
 	aboveFloor := s.joined > cfg.MinSize
 	overProvisioned := s.backlog == 0 && s.idle > cfg.IdleHeadroom
 	cooldownElapsed := s.now-s.lastDown >= cfg.ScaleDownCooldown.Nanoseconds()
+
 	return aboveFloor && overProvisioned && cooldownElapsed
 }
 
@@ -66,6 +68,7 @@ func (s snapshot) scaleUpStep(cfg AutoScaleConfig) int {
 	if room := cfg.MaxSize - s.joined; step > room {
 		step = room
 	}
+
 	return step
 }
 
@@ -93,6 +96,7 @@ func pickVictim(candidates []idleCandidate, now int64, idlePeriod time.Duration)
 			best = i
 		}
 	}
+
 	return best, best != -1
 }
 
@@ -121,8 +125,9 @@ func (pool *WorkerPool[T]) joinOneIdle() error {
 	}
 
 	pool.mu.Lock()
+	defer pool.mu.Unlock()
 	pool.joinedIDs[target.ID()] = struct{}{}
-	pool.mu.Unlock()
+
 	return nil
 }
 
@@ -196,6 +201,7 @@ func (pool *WorkerPool[T]) joinedCandidates() ([]idleCandidate, []*worker[T]) {
 			workers = append(workers, candidate)
 		}
 	}
+
 	return candidates, workers
 }
 
@@ -207,7 +213,8 @@ func (pool *WorkerPool[T]) leaveOne(target *worker[T]) error {
 	err := target.leave(pool.availableWorkers, pool.cfg.SubmitTimeout)
 
 	pool.mu.Lock()
+	defer pool.mu.Unlock()
 	delete(pool.joinedIDs, target.ID())
-	pool.mu.Unlock()
+
 	return err
 }
