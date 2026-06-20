@@ -50,6 +50,7 @@ Simple Go library for managing asynchronous tasks with context-aware execution, 
 ### WorkerPool Package (`pkg/workerpool`)
 
 - **Fixed-Size Pool**: `ModeFixedSize` pre-subscribes all workers on startup; worker count never changes after `New` returns
+- **Auto-Scaling Pool**: `ModeAutoScale` keeps joined workers between `MinSize` and `MaxSize`, driven by backlog pressure and idle headroom — scales **up fast** (adds `ScaleUpStep` workers per tick under load) and **down slow** (sheds one idle worker per `ScaleDownCooldown`). Never leaves a worker mid-job, never drops below `MinSize`, and settles back to `MinSize` after a burst. One poll-based scaler goroutine, no metrics backend or extra dependencies
 - **Claims Dispatcher**: Workers advertise availability on a shared buffered channel — no per-submit scan, no queue-per-worker fan-out
 - **Generic over Job Type**: `WorkerPool[T]` — no `interface{}`, no boxing, handlers type-checked at compile time
 - **Composed Context**: Handlers receive a `JobAware[T]` that merges the pool's lifecycle context with the caller's `Submit` context; whichever cancels first cancels the handler
@@ -727,12 +728,24 @@ payload via `Job()`.
 
 ```go
 type Config struct {
-    ClaimsConfig          // Size, SubmitTimeout, SubmitBackoff, SubmitAttemptsPerSec, BackoffFactor, Name
-    Mode      Mode        // ModeFixedSize (default)
-    RateLimit float64     // max Submit rate per second (default 750)
-    Backlog   int         // buffered job queue size (default 1000)
+    ClaimsConfig                  // Size, SubmitTimeout, SubmitBackoff, SubmitAttemptsPerSec, BackoffFactor, Name
+    Mode      Mode                // ModeFixedSize (default) or ModeAutoScale
+    RateLimit float64             // max Submit rate per second (default 750)
+    Backlog   int                 // buffered job queue size (default 1000)
+    AutoScale AutoScaleConfig     // config for ModeAutoScale (ignored otherwise)
 }
-```
+``` 
+
+**AutoScaleConfig** (used only when `Mode == ModeAutoScale`; in auto mode `MaxSize` is the ceiling — it sizes the claims buffer, subscriber cap, and rate burst — and `ClaimsConfig.Size` is ignored). Every numeric field defaults when ≤ 0:
+
+- `MinSize int` — floor of joined workers; never goes below it except during shutdown (default 1)
+- `MaxSize int` — ceiling of joined workers (default `runtime.NumCPU()`)
+- `ScaleUpStep int` — workers added per up-decision (default 1)
+- `IdleHeadroom int` — spare idle workers to keep before scaling down (default 1)
+- `Interval time.Duration` — scaler poll/tick period (default 100ms)
+- `ScaleUpCooldown time.Duration` — minimum gap between up-decisions (default 0 → may scale up every tick)
+- `ScaleDownCooldown time.Duration` — minimum gap between down-decisions (default 5s)
+- `ScaleDownIdlePeriod time.Duration` — how long a worker must be idle before removal; tune to ≥ 2× handler p99 (default 2s)
 
 **ClaimsConfig** (embedded into `Config`):
 
