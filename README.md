@@ -1,8 +1,8 @@
 # go-asynctasklib
 
-[![Go Version](https://img.shields.io/badge/go-1.26.1+-blue.svg)](https://golang.org/doc/devel/release.html)
+[![Go Version](https://img.shields.io/badge/go-1.27+-blue.svg)](https://golang.org/doc/devel/release.html)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Coverage](https://img.shields.io/badge/coverage-96%25-brightgreen.svg)](https://github.com/barnowlsnest/go-asynctasklib)
+[![Coverage](https://img.shields.io/badge/coverage-93%25-brightgreen.svg)](https://github.com/barnowlsnest/go-asynctasklib)
 
 Simple Go library for managing asynchronous tasks with context-aware execution, automatic retries, state hooks, and worker pool orchestration.
 
@@ -41,7 +41,8 @@ Simple Go library for managing asynchronous tasks with context-aware execution, 
 - **Timeout Protection**: Configurable timeout watchdog stops idle yielders
 - **Panic Recovery**: Generator function panics are recovered and surfaced as errors
 - **Error Joining**: Multiple errors are accumulated via `errors.Join`
-- **Functional Options**: `WithTimeout`, `WithBuffer`, `WithGeneratorFunc`, `WithValues`
+- **Three Input Sources**: a generator func, a static slice, or an upstream channel (`WithInputChannel`)
+- **Functional Options**: `WithTimeout`, `WithBuffer`, `WithGeneratorFunc`, `WithValues`, `WithInputChannel`
 
 ### Semaphore Package (`pkg/semaphore`)
 
@@ -69,10 +70,11 @@ Simple Go library for managing asynchronous tasks with context-aware execution, 
 - **Two Consumer APIs**: blocking `Dequeue` for one-at-a-time consumers, plus a yielder-based `Stream` for pipelines
 - **Pluggable Events**: `QueueEvents` observes every transition (enqueue, claim, ack, nack, retry, dead-letter, lease expiry); embed `NoopQueueEvents` to override only the hooks you need
 - **Graceful Close**: `Close` stops the reaper and is idempotent; producer/consumer calls after close return `ErrQueueClosed`
+- **Lobby**: a bounded, standalone staging buffer in front of the queue — blocking submit/retrieve with per-call timeouts, yielder-based batch push/fetch, and a drain-on-close handoff so buffered work is never silently dropped
 
 ## Installation
 
-go 1.26.1 or later
+go 1.27 or later
 
 ```bash
 go get github.com/barnowlsnest/go-asynctasklib/v2
@@ -90,7 +92,7 @@ import (
     "fmt"
     "time"
 
-    "github.com/barnowlsnest/go-asynctasklib/pkg/task"
+    "github.com/barnowlsnest/go-asynctasklib/v2/pkg/task"
 )
 
 func main() {
@@ -134,8 +136,8 @@ import (
     "fmt"
     "time"
 
-    "github.com/barnowlsnest/go-asynctasklib/pkg/task"
-    "github.com/barnowlsnest/go-asynctasklib/pkg/taskgroup"
+    "github.com/barnowlsnest/go-asynctasklib/v2/pkg/task"
+    "github.com/barnowlsnest/go-asynctasklib/v2/pkg/taskgroup"
 )
 
 func main() {
@@ -183,8 +185,8 @@ import (
     "context"
     "fmt"
 
-    "github.com/barnowlsnest/go-asynctasklib/pkg/task"
-    "github.com/barnowlsnest/go-asynctasklib/pkg/taskgroup"
+    "github.com/barnowlsnest/go-asynctasklib/v2/pkg/task"
+    "github.com/barnowlsnest/go-asynctasklib/v2/pkg/taskgroup"
 )
 
 func main() {
@@ -218,7 +220,7 @@ import (
     "fmt"
     "time"
 
-    "github.com/barnowlsnest/go-asynctasklib/pkg/task"
+    "github.com/barnowlsnest/go-asynctasklib/v2/pkg/task"
 )
 
 func main() {
@@ -254,8 +256,8 @@ import (
     "fmt"
     "time"
 
-    "github.com/barnowlsnest/go-asynctasklib/pkg/retry"
-    "github.com/barnowlsnest/go-asynctasklib/pkg/task"
+    "github.com/barnowlsnest/go-asynctasklib/v2/pkg/retry"
+    "github.com/barnowlsnest/go-asynctasklib/v2/pkg/task"
 )
 
 func main() {
@@ -310,7 +312,7 @@ import (
     "fmt"
     "time"
 
-    "github.com/barnowlsnest/go-asynctasklib/pkg/task"
+    "github.com/barnowlsnest/go-asynctasklib/v2/pkg/task"
 )
 
 func main() {
@@ -347,7 +349,7 @@ import (
     "context"
     "fmt"
 
-    "github.com/barnowlsnest/go-asynctasklib/pkg/yielder"
+    "github.com/barnowlsnest/go-asynctasklib/v2/pkg/yielder"
 )
 
 func main() {
@@ -372,8 +374,8 @@ func main() {
 ```go
 // From a generator function with custom timeout and buffer
 y, err := yielder.New[int](ctx,
-    yielder.WithGeneratorFunc(func() ([]int, error) {
-        // fetch or compute values
+    yielder.WithGeneratorFunc(func(ctx context.Context) ([]int, error) {
+        // fetch or compute values; honor ctx for cancellation
         return []int{1, 2, 3}, nil
     }),
     yielder.WithTimeout[int](5*time.Second),
@@ -404,7 +406,7 @@ import (
     "sync"
     "time"
 
-    "github.com/barnowlsnest/go-asynctasklib/pkg/semaphore"
+    "github.com/barnowlsnest/go-asynctasklib/v2/pkg/semaphore"
 )
 
 func main() {
@@ -645,7 +647,6 @@ def, err := task.NewBuilder(opts...).Build()
 - `WhenDone(fn func(id uint64, when time.Time))` - Called when task completes successfully
 - `WhenFailed(fn func(id uint64, when time.Time, err error))` - Called when task fails
 - `WhenCanceled(fn func(id uint64, when time.Time))` - Called when task is canceled
-- `FromTaskFn(fn func(id uint64, when time.Time))` - Called from within task via `Run.Callback()`
 
 ### Retry Strategies (`pkg/retry`)
 
@@ -662,22 +663,26 @@ def, err := task.NewBuilder(opts...).Build()
 
 ### Yielder (`pkg/yielder`)
 
+`T` must be `comparable`.
+
 - `yielder.New[T](ctx, opts ...Option[T]) (*Yielder[T], error)` - Create and start a new yielder
-- `Results() <-chan T` - claims of generated values (closes on completion)
+- `Results() <-chan T` - Channel of generated values (closes on completion)
 - `Done() <-chan struct{}` - Closed when the yielder finishes (success, error, timeout, or stop)
 - `Stop()` - Stop the yielder (idempotent)
+- `StopErr(err error)` - Stop the yielder, recording `err` on `Err()`
 - `Err() error` - Get accumulated errors
 
-**Options:**
-- `WithGeneratorFunc[T](fn func() ([]T, error))` - Set the generator function
-- `WithValues[T](values []T)` - Use a static slice as the generator
+**Options** (exactly one input source — `WithGeneratorFunc`, `WithValues`, or `WithInputChannel`):
+- `WithGeneratorFunc[T](fn func(context.Context) ([]T, error))` - Set the generator function; it receives the yielder's context
+- `WithValues[T](values []T)` - Use a static slice as the source
+- `WithInputChannel[T](input <-chan T)` - Forward values from an upstream channel
 - `WithTimeout[T](d time.Duration)` - Timeout before auto-stop (default: 1s)
 - `WithBuffer[T](size int)` - Result channel buffer size (default: 1)
 
 **Errors:**
-- `ErrNil` - Generator function is nil
-- `ErrTimeout` - Yielder timed out
+- `ErrNil` - No input source configured (nil generator function)
 - `ErrStopped` - Yielder was stopped during emission
+- `ErrInputClosed` - Upstream input channel closed before generation finished
 
 ### Semaphore Methods (`pkg/semaphore`)
 
@@ -798,6 +803,11 @@ worker (typically `ErrSubmitTimeout` with no accepting worker). `NoopEvents[T]`
 implements every `PoolEvents[T]` method as a no-op so custom observers can
 embed it and override only the hooks they care about.
 
+**Test helpers:**
+
+- `NoopHandler[T](JobAware[T]) error` — a `HandlerFunc[T]` that accepts any job and returns nil; useful for tests and for benchmarking the dispatch path independently of handler cost
+- `NewNoopEvents[T]() *NoopEvents[T]` — the default no-op observer
+
 ### TaskQueue (`pkg/taskqueue`)
 
 **Constructor:**
@@ -829,10 +839,33 @@ embed it and override only the hooks they care about.
 - `Ack(ctx) error` — mark the task done and remove it; a second settle returns `ErrClaimSettled`
 - `Nack(ctx, reason error) error` — report failure; the queue requeues, or dead-letters once `WithMaxAttempts` is reached
 
+**Ordering Constants:**
+
+- `ModePriority` (default) — order by `Priority` descending, ties broken FIFO by `Seq` ascending
+- `ModeFIFO` — order strictly by `Seq` ascending; `Priority` is ignored
+- `Priority` values, ascending: `PriorityLow`, `PriorityNormal`, `PriorityHigh`, `PrioritySuper`
+
+**Lobby** — a bounded staging buffer that can be used on its own, in front of a `Queue`:
+
+- `taskqueue.NewLobby(maxTasks int, closeTimeout time.Duration) *Lobby` — construct a lobby; a non-positive `maxTasks` falls back to a default buffer size
+- `SubmitTask(ctx, task Task, timeout time.Duration) error` — block until there is room; returns `ErrTaskNil`, `ErrLobbyFull` on timeout, `ErrLobbyClosed`, or `ctx.Err()`
+- `PushTasks(ctx, tasks *yielder.Yielder[Task], timeout time.Duration) error` — drain a yielder into the lobby, submitting each task with the per-task `timeout`; returns the first submission error
+- `RetrieveTask(ctx, timeout time.Duration) (Task, error)` — block for one task; returns `ErrLobbyEmpty` on timeout, or `ErrLobbyClosed` once closed and drained
+- `FetchTasks(ctx, timeout time.Duration, n int) (*yielder.Yielder[Task], error)` — stream up to `n` tasks out of the lobby
+- `CloseContext(ctx) error` — stop accepting submissions and drain buffered tasks into a handoff yielder (bounded by `closeTimeout`); returns `ErrLobbyClosed` if already closed
+- `HandoffTasks() (*yielder.Yielder[Task], bool)` — retrieve the leftover tasks drained by `CloseContext`; the bool is false while the lobby is still open
+- `Len() int` — tasks currently buffered
+
+**Lobby Errors:**
+
+- `ErrLobbyFull` — `SubmitTask` timed out with no space available
+- `ErrLobbyEmpty` — `RetrieveTask` timed out with no task available
+- `ErrLobbyClosed` — submit/retrieve after `CloseContext`, or a second close
+
 **Interfaces:**
 
 ```go
-type Task interface { // already defined alongside Lobby
+type Task interface {
     Do(ctx context.Context) error
     ID() uint64
     Seq() uint64
@@ -892,7 +925,7 @@ The library uses several synchronization primitives:
 2. **Fail-Safe Defaults**: Sensible defaults with explicit override options
 3. **Memory Safety**: Careful struct field ordering for optimal alignment
 4. **Error Transparency**: Structured errors with clear semantics
-5. **Zero Dependencies**: Only uses `golang.org/x/sync` for errgroup
+5. **Minimal Dependencies**: Three direct runtime dependencies — `golang.org/x/sync` (errgroup, in `taskgroup`), `golang.org/x/time` (rate limiter, in `workerpool`), and `github.com/google/uuid` (lease tokens, in `taskqueue`)
 
 ## License
 
