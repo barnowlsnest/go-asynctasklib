@@ -397,6 +397,65 @@ func (s *PoolTestSuite) TestDoubleShutdownIdempotent() {
 	}
 }
 
+func (s *PoolTestSuite) TestDispatchErrorWithoutEventsNoPanic() {
+	const blockingPayload = 1
+	const canceledPayload = 2
+	const followUpPayload = 3
+	started := make(chan struct{})
+	release := make(chan struct{})
+	processed := make(chan int, testBacklog)
+	h := func(ctx JobAware[testJob]) error {
+		sum, err := ctx.Job().Sum(context.Background())
+		if err != nil {
+			return err
+		}
+		if sum == blockingPayload {
+			close(started)
+			<-release
+		}
+		processed <- sum
+		return nil
+	}
+
+	cfg := &Config{
+		Mode:      ModeFixedSize,
+		Backlog:   testBacklog,
+		RateLimit: testRateLimit,
+		ClaimsConfig: ClaimsConfig{
+			Name:          "test",
+			Size:          1,
+			SubmitTimeout: testSubmitTimeout,
+		},
+	}
+	pool, err := New[testJob](context.Background(), WithConfig[testJob](cfg), WithHandler[testJob](h))
+	s.Require().NoError(err)
+	defer pool.GracefulShutdown()
+
+	ctx := context.Background()
+	s.Require().NoError(pool.Submit(ctx, &testJobImpl{blockingPayload, 0}))
+	select {
+	case <-started:
+	case <-time.After(testScenarioBudget):
+		s.FailNow("blocking job did not start")
+	}
+
+	canceledCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+	s.Require().NoError(pool.Submit(canceledCtx, &testJobImpl{canceledPayload, 0}))
+	s.Require().NoError(pool.Submit(ctx, &testJobImpl{followUpPayload, 0}))
+	close(release)
+
+	expected := []int{blockingPayload, followUpPayload}
+	for _, expectedSum := range expected {
+		select {
+		case sum := <-processed:
+			s.Require().Equal(expectedSum, sum)
+		case <-time.After(testScenarioBudget):
+			s.FailNow("dispatcher stopped processing jobs")
+		}
+	}
+}
+
 func (s *PoolTestSuite) TestJobContextCancelPropagates() {
 	observed := make(chan error, 1)
 	h := func(ctx JobAware[testJob]) error {

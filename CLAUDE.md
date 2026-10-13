@@ -11,8 +11,9 @@ and no binary to run.
 
 - Module path: `github.com/barnowlsnest/go-asynctasklib/v2` — the `/v2` suffix
   is part of every import path. Omitting it is the most common docs/example bug.
-- Go version: **1.27** (`go.mod`). CI installs it via `go-version-file: go.mod`,
-  so bumping `go.mod` is the single place the version changes.
+- Go version: **1.27** (`go.mod`). CI installs it via `go-version-file: go.mod`.
+  A version bump must also update the README badge and install line, and the
+  version mentions in this file.
 
 ## Layout
 
@@ -25,7 +26,7 @@ a package listed below it:
 | `pkg/retry` | `Strategy` interface + `Linear` / `ExponentialBackoff`. No internal deps. |
 | `pkg/yielder` | Generic one-shot value generator `Yielder[T comparable]`. No internal deps. |
 | `pkg/task` | `Task`, `Definition`, `Builder`, `StateHooks`. Imports `retry`. |
-| `pkg/taskgroup` | Bounded concurrent execution of `task.Definition`s. Imports `task`. |
+| `pkg/taskgroup` | Bounded concurrent execution of `task.Definition`s. Imports `task`, `semaphore`. |
 | `pkg/workerpool` | Generic `WorkerPool[T]`, fixed-size or auto-scaling, claims dispatcher. |
 | `pkg/taskqueue` | Leased queue (claim/ack/nack), DLQ, reaper, plus the standalone `Lobby`. Imports `yielder`. |
 
@@ -72,15 +73,22 @@ Strict by design. The limits that bite most often:
 
 ### Errors
 
-Each package keeps its sentinels in `errors.go` and wraps rather than
-reformats. `workerpool` nests them — `ErrNilJob` and `ErrNilCtx` are
+Sentinels mostly live in each package's `errors.go`, but `workerpool` also
+declares them next to their owners (`claims.go`, `worker.go`, `pool.go`) — don't
+move them. Wrap rather than reformat. `workerpool` nests them — `ErrNilJob` and `ErrNilCtx` are
 `fmt.Errorf("%w: ...", ErrNil)`, so `errors.Is(err, ErrNil)` matches any
 "nil X" condition. Follow that shape when adding new errors.
 
 ### Contexts
 
 Every method taking a `ctx` must honor it — at minimum check `ctx.Err()`.
-This is enforced by review, not by a linter.
+A `select` on `<-ctx.Done()` already counts; don't add a `ctx.Err()` pre-check
+on top of it. This is enforced by review, not by a linter.
+
+### Comments
+
+Don't add explanatory comments to fixes or tests. Godoc on exported
+identifiers stays; ask before changing it.
 
 ### Tests
 

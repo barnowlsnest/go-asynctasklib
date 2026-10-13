@@ -257,6 +257,10 @@ func New[T any](ctx context.Context, opts ...PoolOptionFunc[T]) (*WorkerPool[T],
 		opt(pool)
 	}
 
+	if pool.events == nil {
+		pool.events = NewNoopEvents[T]()
+	}
+
 	switch {
 	case pool.handler == nil:
 		cancel()
