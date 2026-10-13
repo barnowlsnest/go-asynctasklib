@@ -49,7 +49,7 @@ task go-lint     # golangci-lint run --fix
 ## CI
 
 - `.github/workflows/build.yml` — `task go-build` + `task go-test`
-- `.github/workflows/golangci-lint.yml` — golangci-lint v2.13
+- `.github/workflows/golangci-lint.yml` — golangci-lint v2.14
 
 Both resolve the Go toolchain from `go.mod`. Note that CI sets
 `GOTOOLCHAIN=local` (via `actions/setup-go`), so Go will **not** auto-download a
