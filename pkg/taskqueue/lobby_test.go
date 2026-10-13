@@ -11,12 +11,14 @@ import (
 )
 
 const (
-	lobbyTimeout    = time.Second
-	pollTimeout     = 20 * time.Millisecond
-	fetchTimeout    = 100 * time.Millisecond
-	bufferOne       = 1
-	bufferRoomy     = 8
-	retrievedTaskID = uint64(7)
+	lobbyTimeout         = time.Second
+	pollTimeout          = 20 * time.Millisecond
+	fetchTimeout         = 100 * time.Millisecond
+	bufferOne            = 1
+	bufferRoomy          = 8
+	retrievedTaskID      = uint64(7)
+	blockedSubmitTimeout = 5 * time.Second
+	blockedSubmitWarmup  = 20 * time.Millisecond
 )
 
 type LobbySuite struct {
@@ -94,6 +96,36 @@ func (s *LobbySuite) TestSubmitTaskHonorsCanceledContext() {
 
 	err := lobby.SubmitTask(ctx, &fakeTask{id: 2, seq: 2}, lobbyTimeout)
 	s.ErrorIs(err, context.Canceled)
+}
+
+func (s *LobbySuite) TestSubmitTaskBlockedDuringCloseReturnsErrLobbyClosed() {
+	const bufferedTaskID = uint64(1)
+	lobby := NewLobby(bufferOne, lobbyTimeout)
+	s.seed(lobby, &fakeTask{id: bufferedTaskID, seq: 1})
+
+	submitErr := make(chan error, 1)
+	go func() {
+		submitErr <- lobby.SubmitTask(s.ctx, &fakeTask{id: 2, seq: 2}, blockedSubmitTimeout)
+	}()
+
+	time.Sleep(blockedSubmitWarmup)
+	s.Require().NoError(lobby.CloseContext(s.ctx))
+
+	select {
+	case err := <-submitErr:
+		s.ErrorIs(err, ErrLobbyClosed)
+	case <-time.After(lobbyTimeout):
+		s.FailNow("blocked SubmitTask was not released by CloseContext")
+	}
+
+	handoff, ok := lobby.HandoffTasks()
+	s.Require().True(ok)
+	s.Require().NotNil(handoff)
+	handedOff := make([]uint64, 0, bufferOne)
+	for task := range handoff.Results() {
+		handedOff = append(handedOff, task.ID())
+	}
+	s.Equal([]uint64{bufferedTaskID}, handedOff)
 }
 
 func (s *LobbySuite) TestRetrieveTask() {

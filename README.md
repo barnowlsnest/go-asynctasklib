@@ -38,9 +38,9 @@ Simple Go library for managing asynchronous tasks with context-aware execution, 
 
 - **Generic Yielder**: One-shot, generic value generator with channel-based output
 - **Context-Aware**: Respects context cancellation during value emission
-- **Timeout Protection**: Configurable timeout watchdog stops idle yielders
+- **Timeout Protection**: Every yielder runs under a hard deadline (`WithTimeout`, default 1s) counted from `New` — not an idle timer — after which it stops
 - **Panic Recovery**: Generator function panics are recovered and surfaced as errors
-- **Error Joining**: Multiple errors are accumulated via `errors.Join`
+- **First-Error Reporting**: `Err()` holds the first failure recorded — a generator error, a recovered panic, `Stop`/`StopErr`, or the timeout
 - **Three Input Sources**: a generator func, a static slice, or an upstream channel (`WithInputChannel`)
 - **Functional Options**: `WithTimeout`, `WithBuffer`, `WithGeneratorFunc`, `WithValues`, `WithInputChannel`
 
@@ -669,8 +669,8 @@ def, err := task.NewBuilder(opts...).Build()
 - `Results() <-chan T` - Channel of generated values (closes on completion)
 - `Done() <-chan struct{}` - Closed when the yielder finishes (success, error, timeout, or stop)
 - `Stop()` - Stop the yielder (idempotent)
-- `StopErr(err error)` - Stop the yielder, recording `err` on `Err()`
-- `Err() error` - Get accumulated errors
+- `StopErr(err error)` - Stop the yielder with a cause: `Err()` wraps both `ErrStopped` and `err`, unless an error was already recorded. A nil `err` is a no-op and does not stop the yielder
+- `Err() error` - The first error recorded (later errors are discarded); read it after `Done()` closes or `Results()` is drained
 
 **Options** (exactly one input source — `WithGeneratorFunc`, `WithValues`, or `WithInputChannel`):
 - `WithGeneratorFunc[T](fn func(context.Context) ([]T, error))` - Set the generator function; it receives the yielder's context
@@ -681,8 +681,8 @@ def, err := task.NewBuilder(opts...).Build()
 
 **Errors:**
 - `ErrNil` - No input source configured (nil generator function)
-- `ErrStopped` - Yielder was stopped during emission
-- `ErrInputClosed` - Upstream input channel closed before generation finished
+- `ErrStopped` - Yielder stopped before finishing — via `Stop`/`StopErr`, its timeout, or cancellation of the parent context
+- `ErrInputClosed` - The upstream channel of a `WithInputChannel` yielder was closed. This is how such a yielder normally ends, so `Err()` wraps it even after every value was delivered
 
 ### Semaphore Methods (`pkg/semaphore`)
 

@@ -54,8 +54,10 @@ type (
 	// rejects new submissions and exposes any remaining tasks for handoff.
 	Lobby struct {
 		incoming     chan Task
+		closing      chan struct{}
 		closeTimeout time.Duration
 		onceClose    sync.Once
+		sendMu       sync.RWMutex
 		handoff      atomic.Pointer[yielder.Yielder[Task]]
 		closed       atomic.Bool
 	}
@@ -76,6 +78,7 @@ func NewLobby(maxTasks int, closeTimeout time.Duration) *Lobby {
 
 	return &Lobby{
 		incoming:     make(chan Task, maxTasks),
+		closing:      make(chan struct{}),
 		closeTimeout: closeTimeout,
 	}
 }
@@ -85,6 +88,8 @@ func NewLobby(maxTasks int, closeTimeout time.Duration) *Lobby {
 // lobby is closed, ErrTaskNil if task is nil, ErrLobbyFull if the timeout
 // elapses before space becomes available, or ctx.Err() if ctx is canceled.
 func (lobby *Lobby) SubmitTask(ctx context.Context, task Task, timeout time.Duration) error {
+	lobby.sendMu.RLock()
+	defer lobby.sendMu.RUnlock()
 	switch {
 	case lobby.closed.Load():
 		return ErrLobbyClosed
@@ -92,9 +97,20 @@ func (lobby *Lobby) SubmitTask(ctx context.Context, task Task, timeout time.Dura
 		return ErrTaskNil
 	}
 
+	if timeout <= 0 {
+		select {
+		case lobby.incoming <- task:
+			return nil
+		default:
+			return ErrLobbyFull
+		}
+	}
+
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
+	case <-lobby.closing:
+		return ErrLobbyClosed
 	case <-time.After(timeout):
 		return ErrLobbyFull
 	case lobby.incoming <- task:
@@ -132,6 +148,19 @@ func (lobby *Lobby) PushTasks(ctx context.Context, tasks *yielder.Yielder[Task],
 // elapses before a task arrives, ErrLobbyClosed if the lobby has been closed and
 // drained, or ctx.Err() if ctx is canceled.
 func (lobby *Lobby) RetrieveTask(ctx context.Context, timeout time.Duration) (Task, error) {
+	if timeout <= 0 {
+		select {
+		case task, ok := <-lobby.incoming:
+			if !ok {
+				return nil, ErrLobbyClosed
+			}
+
+			return task, nil
+		default:
+			return nil, ErrLobbyEmpty
+		}
+	}
+
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
@@ -184,6 +213,9 @@ func (lobby *Lobby) CloseContext(ctx context.Context) error {
 		err     error
 	)
 	lobby.onceClose.Do(func() {
+		close(lobby.closing)
+		lobby.sendMu.Lock()
+		defer lobby.sendMu.Unlock()
 		defer close(lobby.incoming)
 		handoff, err = yielder.New[Task](ctx,
 			yielder.WithBuffer[Task](len(lobby.incoming)),
