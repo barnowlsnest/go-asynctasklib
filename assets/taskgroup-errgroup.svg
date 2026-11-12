@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="560" height="160" viewBox="0 0 560 160" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11">
+  <rect width="560" height="160" rx="10" fill="#0f172a"/>
+  <text x="16" y="24" font-size="12" font-weight="700" fill="#e2e8f0">ErrorGroup: SubmitWithErrGroup cancels the siblings on the first failure</text>
+  <g fill="#94a3b8">
+    <text x="30" y="58">task A</text>
+    <text x="30" y="88">task B</text>
+    <text x="30" y="118">task C</text>
+  </g>
+  <g fill="#1e293b">
+    <rect x="90" y="48" width="300" height="12" rx="6"/>
+    <rect x="90" y="78" width="300" height="12" rx="6"/>
+    <rect x="90" y="108" width="300" height="12" rx="6"/>
+  </g>
+  <rect x="90" y="48" width="0" height="12" rx="6" fill="#fbbf24">
+    <animate attributeName="width" values="0;150;150;0" keyTimes="0;0.4;0.95;1" dur="6s" repeatCount="indefinite"/>
+    <animate attributeName="fill" values="#fbbf24;#fbbf24;#475569;#475569" keyTimes="0;0.41;0.44;1" dur="6s" repeatCount="indefinite"/>
+  </rect>
+  <rect x="90" y="78" width="0" height="12" rx="6" fill="#fbbf24">
+    <animate attributeName="width" values="0;110;110;0" keyTimes="0;0.36;0.95;1" dur="6s" repeatCount="indefinite"/>
+    <animate attributeName="fill" values="#fbbf24;#fbbf24;#f87171;#f87171" keyTimes="0;0.35;0.37;1" dur="6s" repeatCount="indefinite"/>
+  </rect>
+  <rect x="90" y="108" width="0" height="12" rx="6" fill="#fbbf24">
+    <animate attributeName="width" values="0;180;180;0" keyTimes="0;0.4;0.95;1" dur="6s" repeatCount="indefinite"/>
+    <animate attributeName="fill" values="#fbbf24;#fbbf24;#475569;#475569" keyTimes="0;0.41;0.44;1" dur="6s" repeatCount="indefinite"/>
+  </rect>
+  <g opacity="0">
+    <animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.37;0.4;0.95;1" dur="6s" repeatCount="indefinite"/>
+    <text x="206" y="94" fill="#f87171" font-weight="700">✗ err</text>
+    <text x="246" y="58" fill="#94a3b8">canceled</text>
+    <text x="276" y="118" fill="#94a3b8">canceled</text>
+    <path d="M200 84 C230 70, 240 60, 244 56 M200 84 C240 100, 260 110, 274 114" fill="none" stroke="#f87171" stroke-dasharray="3 3"/>
+  </g>
+  <rect x="410" y="62" width="130" height="44" rx="8" fill="#1e293b" stroke="#334155">
+    <animate attributeName="stroke" values="#334155;#334155;#f87171;#f87171;#334155" keyTimes="0;0.5;0.53;0.95;1" dur="6s" repeatCount="indefinite"/>
+  </rect>
+  <text x="475" y="80" text-anchor="middle" fill="#e2e8f0">g.Wait()</text>
+  <text x="475" y="96" text-anchor="middle" fill="#f87171" opacity="0">returns B's err
+    <animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.5;0.53;0.95;1" dur="6s" repeatCount="indefinite"/>
+  </text>
+  <text x="30" y="145" fill="#94a3b8">one shared errCtx: the first error cancels it, and every other task sees ctx.Done()</text>
+</svg>

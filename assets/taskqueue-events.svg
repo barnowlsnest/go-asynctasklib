@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="560" height="160" viewBox="0 0 560 160" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11">
+  <rect width="560" height="160" rx="10" fill="#0f172a"/>
+  <text x="16" y="24" font-size="12" font-weight="700" fill="#e2e8f0">Pluggable events: QueueEvents observes every queue transition</text>
+  <rect x="30" y="56" width="120" height="50" rx="8" fill="#1e293b" stroke="#c084fc"/>
+  <text x="90" y="85" text-anchor="middle" fill="#e2e8f0" font-weight="700">Queue</text>
+  <rect x="400" y="46" width="140" height="70" rx="8" fill="#1e293b" stroke="#60a5fa"/>
+  <text x="470" y="68" text-anchor="middle" fill="#60a5fa" font-weight="700">your observer</text>
+  <text x="470" y="86" text-anchor="middle" fill="#94a3b8">embeds</text>
+  <text x="470" y="102" text-anchor="middle" fill="#94a3b8">NoopQueueEvents</text>
+  <g font-weight="700" text-anchor="middle" font-size="10">
+    <g><animateTransform attributeName="transform" type="translate" values="150,81;400,81" dur="1.3s" begin="0s;q7.end" id="q1" fill="freeze"/>
+      <animate attributeName="opacity" values="1;1;0" keyTimes="0;0.85;1" dur="1.3s" begin="0s;q7.end" fill="freeze"/>
+      <rect y="-9" width="110" height="18" rx="9" fill="#60a5fa"/><text x="55" y="4" fill="#0f172a">OnEnqueue</text></g>
+    <g opacity="0"><animateTransform attributeName="transform" type="translate" values="150,81;400,81" dur="1.3s" begin="q1.end" id="q2" fill="freeze"/>
+      <animate attributeName="opacity" values="1;1;0" keyTimes="0;0.85;1" dur="1.3s" begin="q1.end" fill="freeze"/>
+      <rect y="-9" width="110" height="18" rx="9" fill="#fbbf24"/><text x="55" y="4" fill="#0f172a">OnClaim</text></g>
+    <g opacity="0"><animateTransform attributeName="transform" type="translate" values="150,81;400,81" dur="1.3s" begin="q2.end" id="q3" fill="freeze"/>
+      <animate attributeName="opacity" values="1;1;0" keyTimes="0;0.85;1" dur="1.3s" begin="q2.end" fill="freeze"/>
+      <rect y="-9" width="110" height="18" rx="9" fill="#4ade80"/><text x="55" y="4" fill="#0f172a">OnAck</text></g>
+    <g opacity="0"><animateTransform attributeName="transform" type="translate" values="150,81;400,81" dur="1.3s" begin="q3.end" id="q4" fill="freeze"/>
+      <animate attributeName="opacity" values="1;1;0" keyTimes="0;0.85;1" dur="1.3s" begin="q3.end" fill="freeze"/>
+      <rect y="-9" width="110" height="18" rx="9" fill="#f87171"/><text x="55" y="4" fill="#0f172a">OnNack</text></g>
+    <g opacity="0"><animateTransform attributeName="transform" type="translate" values="150,81;400,81" dur="1.3s" begin="q4.end" id="q5" fill="freeze"/>
+      <animate attributeName="opacity" values="1;1;0" keyTimes="0;0.85;1" dur="1.3s" begin="q4.end" fill="freeze"/>
+      <rect y="-9" width="110" height="18" rx="9" fill="#94a3b8"/><text x="55" y="4" fill="#0f172a">OnRetry</text></g>
+    <g opacity="0"><animateTransform attributeName="transform" type="translate" values="150,81;400,81" dur="1.3s" begin="q5.end" id="q6" fill="freeze"/>
+      <animate attributeName="opacity" values="1;1;0" keyTimes="0;0.85;1" dur="1.3s" begin="q5.end" fill="freeze"/>
+      <rect y="-9" width="110" height="18" rx="9" fill="#c084fc"/><text x="55" y="4" fill="#0f172a">OnDeadLetter</text></g>
+    <g opacity="0"><animateTransform attributeName="transform" type="translate" values="150,81;400,81" dur="1.3s" begin="q6.end" id="q7" fill="freeze"/>
+      <animate attributeName="opacity" values="1;1;0" keyTimes="0;0.85;1" dur="1.3s" begin="q6.end" fill="freeze"/>
+      <rect y="-9" width="110" height="18" rx="9" fill="#f472b6"/><text x="55" y="4" fill="#0f172a">OnLeaseExpired</text></g>
+  </g>
+  <text x="16" y="140" fill="#94a3b8">wire it with WithEvents(e) and override only the hooks you need</text>
+</svg>

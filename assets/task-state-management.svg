@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="560" height="160" viewBox="0 0 560 160" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11">
+  <rect width="560" height="160" rx="10" fill="#0f172a"/>
+  <text x="16" y="24" font-size="12" font-weight="700" fill="#e2e8f0">State management: query a task's state at any point in its lifecycle</text>
+  <rect x="30" y="50" width="200" height="80" rx="8" fill="#1e293b" stroke="#334155"/>
+  <text x="46" y="72" fill="#94a3b8">t := task.New(def)</text>
+  <text x="46" y="92" fill="#94a3b8">t.GoRetry(ctx)</text>
+  <text x="46" y="112" fill="#94a3b8">t.Await()</text>
+  <g font-weight="700">
+    <text x="260" y="66" fill="#94a3b8">IsCreated()</text>
+    <text x="260" y="86" fill="#94a3b8">IsInProgress()</text>
+    <text x="260" y="106" fill="#94a3b8">IsDone()</text>
+    <text x="260" y="126" fill="#94a3b8">IsFailed() / IsCanceled()</text>
+  </g>
+  <g font-weight="700">
+    <text x="470" y="66" fill="#4ade80">true
+      <animate attributeName="opacity" values="1;1;0;0;1" keyTimes="0;0.25;0.26;0.99;1" dur="6s" repeatCount="indefinite"/>
+    </text>
+    <text x="470" y="66" fill="#475569" opacity="0">false
+      <animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.25;0.26;0.99;1" dur="6s" repeatCount="indefinite"/>
+    </text>
+    <text x="470" y="86" fill="#475569">false
+      <animate attributeName="opacity" values="1;1;0;0;1;1" keyTimes="0;0.25;0.26;0.6;0.61;1" dur="6s" repeatCount="indefinite"/>
+    </text>
+    <text x="470" y="86" fill="#fbbf24" opacity="0">true
+      <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.25;0.26;0.6;0.61;1" dur="6s" repeatCount="indefinite"/>
+    </text>
+    <text x="470" y="106" fill="#475569">false
+      <animate attributeName="opacity" values="1;1;0;0;1" keyTimes="0;0.6;0.61;0.99;1" dur="6s" repeatCount="indefinite"/>
+    </text>
+    <text x="470" y="106" fill="#4ade80" opacity="0">true
+      <animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.6;0.61;0.99;1" dur="6s" repeatCount="indefinite"/>
+    </text>
+    <text x="470" y="126" fill="#475569">false</text>
+  </g>
+  <rect x="36" y="58" width="188" height="20" rx="4" fill="#60a5fa" opacity="0.18">
+    <animate attributeName="y" values="58;58;78;78;98;98" keyTimes="0;0.25;0.26;0.6;0.61;1" dur="6s" repeatCount="indefinite" calcMode="discrete"/>
+  </rect>
+</svg>

@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="560" height="160" viewBox="0 0 560 160" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11">
+  <rect width="560" height="160" rx="10" fill="#0f172a"/>
+  <text x="16" y="24" font-size="12" font-weight="700" fill="#e2e8f0">Thread-safe: concurrent readers and writers go through atomics</text>
+  <g font-weight="700" text-anchor="middle" fill="#e2e8f0">
+    <rect x="30" y="40" width="110" height="26" rx="6" fill="#1e293b" stroke="#60a5fa"/>
+    <text x="85" y="57">goroutine A</text>
+    <rect x="30" y="80" width="110" height="26" rx="6" fill="#1e293b" stroke="#60a5fa"/>
+    <text x="85" y="97">goroutine B</text>
+    <rect x="30" y="120" width="110" height="26" rx="6" fill="#1e293b" stroke="#60a5fa"/>
+    <text x="85" y="137">goroutine C</text>
+  </g>
+  <g stroke="#334155" stroke-width="2">
+    <line x1="140" y1="53" x2="330" y2="93"/>
+    <line x1="140" y1="93" x2="330" y2="93"/>
+    <line x1="140" y1="133" x2="330" y2="93"/>
+  </g>
+  <rect x="330" y="60" width="200" height="66" rx="8" fill="#1e293b" stroke="#4ade80" stroke-width="2">
+    <animate attributeName="stroke" values="#4ade80;#fbbf24;#4ade80;#fbbf24;#4ade80;#fbbf24;#4ade80" keyTimes="0;0.2;0.3;0.5;0.6;0.8;1" dur="3s" repeatCount="indefinite"/>
+  </rect>
+  <text x="430" y="82" text-anchor="middle" fill="#e2e8f0" font-weight="700">Task</text>
+  <text x="430" y="100" text-anchor="middle" fill="#94a3b8">atomic.Uint32 state</text>
+  <text x="430" y="116" text-anchor="middle" fill="#94a3b8">atomic attempts</text>
+  <circle r="5" fill="#fbbf24"><animateMotion dur="3s" repeatCount="indefinite" path="M140 53 L330 93" keyTimes="0;0.2;1" keyPoints="0;1;1"/></circle>
+  <circle r="5" fill="#c084fc"><animateMotion dur="3s" repeatCount="indefinite" begin="0.9s" path="M140 93 L330 93" keyTimes="0;0.2;1" keyPoints="0;1;1"/></circle>
+  <circle r="5" fill="#f472b6"><animateMotion dur="3s" repeatCount="indefinite" begin="1.8s" path="M140 133 L330 93" keyTimes="0;0.2;1" keyPoints="0;1;1"/></circle>
+  <text x="235" y="150" text-anchor="middle" fill="#94a3b8">Load / Store / CompareAndSwap</text>
+</svg>

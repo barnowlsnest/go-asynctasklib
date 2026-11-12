@@ -11,66 +11,188 @@ Simple Go library for managing asynchronous tasks with context-aware execution, 
 ### Task Package (`pkg/task`)
 
 - **Context-Aware Execution**: First-class support for `context.Context` with cancellation and timeout handling
+
+  ![Context-Aware Execution](assets/task-context-aware.svg)
+
 - **Automatic Retries**: Configurable retry logic with attempt tracking and pluggable retry strategies
+
+  ![Automatic Retries](assets/task-automatic-retries.svg)
+
 - **State Hooks**: Event-driven callbacks for task lifecycle events (created, started, done, failed, canceled)
+
+  ![State Hooks](assets/task-state-hooks.svg)
+
 - **Thread-Safe**: Built with `sync/atomic` and proper synchronization primitives
+
+  ![Thread-Safe](assets/task-thread-safe.svg)
+
 - **Graceful Error Handling**: Structured error types with panic recovery
+
+  ![Graceful Error Handling](assets/task-error-handling.svg)
+
 - **Comprehensive State Management**: Track tasks through their entire lifecycle
+
+  ![Comprehensive State Management](assets/task-state-management.svg)
+
 - **Builder Pattern**: Fluent API for constructing task definitions with validation
+
+  ![Builder Pattern](assets/task-builder.svg)
 
 ### TaskGroup Package (`pkg/taskgroup`)
 
 - **TaskGroup**: Manage concurrent task execution with configurable worker limits
+
+  ![TaskGroup](assets/taskgroup-worker-limit.svg)
+
 - **ErrorGroup Integration**: Coordinated error handling using `golang.org/x/sync/errgroup`
+
+  ![ErrorGroup Integration](assets/taskgroup-errgroup.svg)
+
 - **Batch Operations**: Submit multiple tasks efficiently
+
+  ![Batch Operations](assets/taskgroup-batch.svg)
+
 - **Pool Statistics**: Real-time monitoring of task states and worker utilization
+
+  ![Pool Statistics](assets/taskgroup-stats.svg)
+
 - **Graceful Shutdown**: Context-aware stopping with proper cleanup
+
+  ![Graceful Shutdown](assets/taskgroup-shutdown.svg)
 
 ### Retry Package (`pkg/retry`)
 
 - **Linear Strategy**: Linearly increasing delay (`baseDelay * attempt`)
+
+  ![Linear Strategy](assets/retry-linear.svg)
+
 - **Exponential Backoff**: Exponentially increasing delay (`baseDelay * 2^attempt`) with overflow protection
+
+  ![Exponential Backoff](assets/retry-exponential.svg)
+
 - **Jitter**: Optional randomization to prevent thundering herd
+
+  ![Jitter](assets/retry-jitter.svg)
+
 - **Configurable**: Base delay, max delay cap, and jitter via functional options
+
+  ![Configurable](assets/retry-configurable.svg)
+
 - **Constant delay** is handled natively via `Definition.RetryDelay` — no strategy needed
+
+  ![Constant delay](assets/retry-constant.svg)
 
 ### Yielder Package (`pkg/yielder`)
 
 - **Generic Yielder**: One-shot, generic value generator with channel-based output
+
+  ![Generic Yielder](assets/yielder-generic.svg)
+
 - **Context-Aware**: Respects context cancellation during value emission
+
+  ![Context-Aware](assets/yielder-context.svg)
+
 - **Timeout Protection**: Every yielder runs under a hard deadline (`WithTimeout`, default 1s) counted from `New` — not an idle timer — after which it stops
+
+  ![Timeout Protection](assets/yielder-timeout.svg)
+
 - **Panic Recovery**: Generator function panics are recovered and surfaced as errors
+
+  ![Panic Recovery](assets/yielder-panic.svg)
+
 - **First-Error Reporting**: `Err()` holds the first failure recorded — a generator error, a recovered panic, `Stop`/`StopErr`, or the timeout
+
+  ![First-Error Reporting](assets/yielder-first-error.svg)
+
 - **Three Input Sources**: a generator func, a static slice, or an upstream channel (`WithInputChannel`)
+
+  ![Three Input Sources](assets/yielder-input-sources.svg)
+
 - **Functional Options**: `WithTimeout`, `WithBuffer`, `WithGeneratorFunc`, `WithValues`, `WithInputChannel`
+
+  ![Functional Options](assets/yielder-options.svg)
 
 ### Semaphore Package (`pkg/semaphore`)
 
 - **Semaphore**: Lock-free, channel-based semaphore with multiple acquisition modes for custom concurrency control
 
+  ![Semaphore](assets/semaphore.svg)
+
 ### WorkerPool Package (`pkg/workerpool`)
 
 - **Fixed-Size Pool**: `ModeFixedSize` pre-subscribes all workers on startup; worker count never changes after `New` returns
+
+  ![Fixed-Size Pool](assets/workerpool-fixed-size.svg)
+
 - **Auto-Scaling Pool**: `ModeAutoScale` keeps joined workers between `MinSize` and `MaxSize`, driven by backlog pressure and idle headroom — scales **up fast** (adds `ScaleUpStep` workers per tick under load) and **down slow** (sheds one idle worker per `ScaleDownCooldown`). Never leaves a worker mid-job, never drops below `MinSize`, and settles back to `MinSize` after a burst. One poll-based scaler goroutine, no metrics backend or extra dependencies
+
+  ![Auto-Scaling Pool](assets/workerpool-auto-scale.svg)
+
 - **Claims Dispatcher**: Workers advertise availability on a shared buffered channel — no per-submit scan, no queue-per-worker fan-out
+
+  ![Claims Dispatcher](assets/workerpool-claims.svg)
+
 - **Generic over Job Type**: `WorkerPool[T]` — no `interface{}`, no boxing, handlers type-checked at compile time
+
+  ![Generic over Job Type](assets/workerpool-generic.svg)
+
 - **Composed Context**: Handlers receive a `JobAware[T]` that merges the pool's lifecycle context with the caller's `Submit` context; whichever cancels first cancels the handler
+
+  ![Composed Context](assets/workerpool-composed-context.svg)
+
 - **Panic Recovery**: Handler panics are caught, wrapped in `ErrWorkerPanic`, and surfaced via `Events.JobFailed` — the worker keeps serving
+
+  ![Panic Recovery](assets/workerpool-panic-recovery.svg)
+
 - **Rate Limiting**: Token-bucket limiter (`golang.org/x/time/rate`) caps submissions per second into the backlog
+
+  ![Rate Limiting](assets/workerpool-rate-limit.svg)
+
 - **Pluggable Events**: `PoolEvents[T]` observes every lifecycle transition (worker start/stop, subscribe, job ok/failed, leave timeout, dispatch error); embed `NoopEvents[T]` to override only the hooks you care about
+
+  ![Pluggable Events](assets/workerpool-events.svg)
+
 - **Two Shutdown Modes**: `Shutdown()` cancels in-flight work immediately; `GracefulShutdown()` drains the backlog first. Both are idempotent and reject post-shutdown submissions with `ErrPoolShutdown`
+
+  ![Two Shutdown Modes](assets/workerpool-shutdown.svg)
 
 ### TaskQueue Package (`pkg/taskqueue`)
 
 - **Backend-Agnostic**: ordering and lease storage live behind a `Backend` interface; the in-memory default is ready to be swapped for a distributed/PostgreSQL backend (`SELECT ... FOR UPDATE SKIP LOCKED`) without coupling the library to any backend
+
+  ![Backend-Agnostic](assets/taskqueue-backend.svg)
+
 - **Priority or FIFO**: `ModePriority` orders by `Priority` descending with FIFO (`Seq`) tie-breaking; `ModeFIFO` orders strictly by `Seq` — selected by the user
+
+  ![Priority or FIFO](assets/taskqueue-priority-fifo.svg)
+
 - **At-Least-Once Delivery**: claim/ack/nack lease model with a visibility timeout; a crash between claim and ack lets the lease expire and the task redeliver
+
+  ![At-Least-Once Delivery](assets/taskqueue-at-least-once.svg)
+
 - **Attempt Tracking + DLQ**: the queue counts deliveries and auto-routes a task to a pluggable `DeadLetter` once it reaches `WithMaxAttempts` without an ack
+
+  ![Attempt Tracking + DLQ](assets/taskqueue-dead-letter.svg)
+
 - **Background Reaper**: sweeps expired leases every `WithReapInterval`, requeuing or dead-lettering them per the same policy as `Nack`
+
+  ![Background Reaper](assets/taskqueue-reaper.svg)
+
 - **Two Consumer APIs**: blocking `Dequeue` for one-at-a-time consumers, plus a yielder-based `Stream` for pipelines
+
+  ![Two Consumer APIs](assets/taskqueue-consumers.svg)
+
 - **Pluggable Events**: `QueueEvents` observes every transition (enqueue, claim, ack, nack, retry, dead-letter, lease expiry); embed `NoopQueueEvents` to override only the hooks you need
+
+  ![Pluggable Events](assets/taskqueue-events.svg)
+
 - **Graceful Close**: `Close` stops the reaper and is idempotent; producer/consumer calls after close return `ErrQueueClosed`
+
+  ![Graceful Close](assets/taskqueue-close.svg)
+
 - **Lobby**: a bounded, standalone staging buffer in front of the queue — blocking submit/retrieve with per-call timeouts, yielder-based batch push/fetch, and a drain-on-close handoff so buffered work is never silently dropped
+
+  ![Lobby](assets/taskqueue-lobby.svg)
 
 ## Installation
 

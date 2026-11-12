@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="560" height="160" viewBox="0 0 560 160" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11">
+  <rect width="560" height="160" rx="10" fill="#0f172a"/>
+  <text x="16" y="24" font-size="12" font-weight="700" fill="#e2e8f0">Semaphore: NewSemaphore(3), a buffered channel used as permits</text>
+  <text x="300" y="46" fill="#94a3b8">permits (Limit = 3)</text>
+  <g fill="#1e293b" stroke="#334155" stroke-dasharray="4 3">
+    <rect x="300" y="54" width="60" height="36" rx="6"/><rect x="370" y="54" width="60" height="36" rx="6"/><rect x="440" y="54" width="60" height="36" rx="6"/>
+  </g>
+  <g font-weight="700" text-anchor="middle">
+    <g><animateTransform attributeName="transform" type="translate" values="40,40;40,40;305,58;305,58;560,58;560,58;40,40" keyTimes="0;0.03;0.1;0.5;0.56;0.98;1" dur="8s" repeatCount="indefinite"/>
+      <rect width="50" height="28" rx="5" fill="#60a5fa"/><text x="25" y="18" fill="#0f172a">g1</text></g>
+    <g><animateTransform attributeName="transform" type="translate" values="40,40;40,40;375,58;375,58;40,40" keyTimes="0;0.1;0.17;0.98;1" dur="8s" repeatCount="indefinite"/>
+      <rect width="50" height="28" rx="5" fill="#60a5fa"/><text x="25" y="18" fill="#0f172a">g2</text></g>
+    <g><animateTransform attributeName="transform" type="translate" values="40,40;40,40;445,58;445,58;40,40" keyTimes="0;0.17;0.24;0.98;1" dur="8s" repeatCount="indefinite"/>
+      <rect width="50" height="28" rx="5" fill="#60a5fa"/><text x="25" y="18" fill="#0f172a">g3</text></g>
+    <g><animateTransform attributeName="transform" type="translate" values="40,40;40,40;220,58;220,58;305,58;305,58;40,40" keyTimes="0;0.26;0.32;0.56;0.62;0.98;1" dur="8s" repeatCount="indefinite"/>
+      <rect width="50" height="28" rx="5" fill="#fbbf24"><animate attributeName="opacity" values="1;1;0.5;1;0.5;1;1" keyTimes="0;0.32;0.38;0.44;0.5;0.56;1" dur="8s" repeatCount="indefinite"/></rect>
+      <text x="25" y="18" fill="#0f172a">g4</text></g>
+    <g><animateTransform attributeName="transform" type="translate" values="40,110;40,110;220,110;40,110;40,110" keyTimes="0;0.36;0.42;0.48;1" dur="8s" repeatCount="indefinite"/>
+      <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.35;0.36;0.48;0.5;1" dur="8s" repeatCount="indefinite"/>
+      <rect width="50" height="28" rx="5" fill="#f87171"/><text x="25" y="18" fill="#0f172a">g5</text></g>
+  </g>
+  <text x="120" y="78" fill="#fbbf24" opacity="0">Acquire() blocks<animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.32;0.34;0.55;0.57;1" dur="8s" repeatCount="indefinite"/></text>
+  <text x="280" y="128" fill="#f87171" opacity="0">TryAcquire() → false<animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.41;0.42;0.5;0.52;1" dur="8s" repeatCount="indefinite"/></text>
+  <text x="380" y="110" fill="#4ade80" opacity="0">g1 Release() → g4 gets the permit<animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.5;0.52;0.95;1" dur="8s" repeatCount="indefinite"/></text>
+  <text x="16" y="150" fill="#94a3b8">also AcquireWithContext(ctx) and TryAcquireWithTimeout(d) · Available() / Acquired()</text>
+</svg>

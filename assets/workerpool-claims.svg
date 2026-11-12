@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="560" height="160" viewBox="0 0 560 160" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11">
+  <rect width="560" height="160" rx="10" fill="#0f172a"/>
+  <text x="16" y="24" font-size="12" font-weight="700" fill="#e2e8f0">Claims dispatcher: idle workers post a claim, and jobs go to a claimer</text>
+  <rect x="20" y="62" width="100" height="36" rx="6" fill="#1e293b" stroke="#fbbf24"/>
+  <text x="70" y="84" text-anchor="middle" fill="#e2e8f0">backlog</text>
+  <rect x="190" y="62" width="110" height="36" rx="6" fill="#1e293b" stroke="#c084fc"/>
+  <text x="245" y="84" text-anchor="middle" fill="#e2e8f0">dispatcher</text>
+  <rect x="190" y="118" width="110" height="26" rx="6" fill="#1e293b" stroke="#334155"/>
+  <text x="245" y="135" text-anchor="middle" fill="#94a3b8">claims chan</text>
+  <g fill="#1e293b">
+    <rect x="420" y="40" width="110" height="26" rx="5" stroke="#60a5fa"/>
+    <rect x="420" y="78" width="110" height="26" rx="5" stroke="#60a5fa">
+      <animate attributeName="fill" values="#1e293b;#1e293b;#fbbf24;#fbbf24;#1e293b;#1e293b" keyTimes="0;0.6;0.62;0.9;0.92;1" dur="6s" repeatCount="indefinite"/></rect>
+    <rect x="420" y="116" width="110" height="26" rx="5" stroke="#60a5fa"/>
+  </g>
+  <g fill="#e2e8f0" text-anchor="middle"><text x="475" y="57">worker 1 (busy)</text><text x="475" y="95">worker 2</text><text x="475" y="133">worker 3 (busy)</text></g>
+  <g>
+    <animateTransform attributeName="transform" type="translate" values="420,91;420,91;245,131;245,131;245,80;245,80" keyTimes="0;0.05;0.2;0.35;0.45;1" dur="6s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.04;0.05;0.44;0.46;1" dur="6s" repeatCount="indefinite"/>
+    <rect x="-22" y="-8" width="44" height="16" rx="8" fill="#4ade80"/><text y="4" text-anchor="middle" fill="#0f172a" font-weight="700">w2</text>
+  </g>
+  <g>
+    <animateTransform attributeName="transform" type="translate" values="100,80;100,80;245,80;245,80;420,91;420,91" keyTimes="0;0.2;0.35;0.45;0.6;1" dur="6s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.19;0.2;0.6;0.62;1" dur="6s" repeatCount="indefinite"/>
+    <circle r="8" fill="#fbbf24"/><text y="4" text-anchor="middle" fill="#0f172a" font-weight="700">J</text>
+  </g>
+  <g font-size="10" fill="#94a3b8">
+    <text x="320" y="124" opacity="0">1. idle w2 posts a claim<animate attributeName="opacity" values="0;0;1;0;0" keyTimes="0;0.05;0.08;0.2;1" dur="6s" repeatCount="indefinite"/></text>
+    <text x="130" y="56" opacity="0">2. dispatcher pulls the job<animate attributeName="opacity" values="0;0;1;0;0" keyTimes="0;0.2;0.23;0.35;1" dur="6s" repeatCount="indefinite"/></text>
+    <text x="130" y="56" opacity="0">3. takes the next claim<animate attributeName="opacity" values="0;0;1;0;0" keyTimes="0;0.35;0.38;0.45;1" dur="6s" repeatCount="indefinite"/></text>
+    <text x="310" y="56" opacity="0">4. sends the job to w2<animate attributeName="opacity" values="0;0;1;0;0" keyTimes="0;0.45;0.48;0.62;1" dur="6s" repeatCount="indefinite"/></text>
+  </g>
+</svg>

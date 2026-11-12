@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="560" height="160" viewBox="0 0 560 160" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11">
+  <rect width="560" height="160" rx="10" fill="#0f172a"/>
+  <text x="16" y="24" font-size="12" font-weight="700" fill="#e2e8f0">First-error reporting: Err() keeps the first failure (sync.Once)</text>
+  <g font-weight="700" text-anchor="middle">
+    <rect x="30" y="42" width="140" height="24" rx="5" fill="#1e293b" stroke="#f87171"/><text x="100" y="58" fill="#e2e8f0">generator err</text>
+    <rect x="30" y="78" width="140" height="24" rx="5" fill="#1e293b" stroke="#fbbf24"/><text x="100" y="94" fill="#e2e8f0">Stop()</text>
+    <rect x="30" y="114" width="140" height="24" rx="5" fill="#1e293b" stroke="#94a3b8"/><text x="100" y="130" fill="#e2e8f0">timeout</text>
+  </g>
+  <rect x="370" y="62" width="160" height="56" rx="8" fill="#1e293b" stroke="#c084fc" stroke-width="2"/>
+  <text x="450" y="82" text-anchor="middle" fill="#c084fc" font-weight="700">y.Err()</text>
+  <text x="450" y="102" text-anchor="middle" fill="#f87171" opacity="0">err func generator: …
+    <animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.2;0.22;0.95;1" dur="6s" repeatCount="indefinite"/>
+  </text>
+  <circle r="7" fill="#f87171">
+    <animateMotion dur="6s" repeatCount="indefinite" path="M170 54 L370 90" keyTimes="0;0.05;0.2;1" keyPoints="0;0;1;1"/>
+    <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.04;0.05;0.2;0.21;1" dur="6s" repeatCount="indefinite"/>
+  </circle>
+  <circle r="7" fill="#fbbf24">
+    <animateMotion dur="6s" repeatCount="indefinite" path="M170 90 L360 90 L300 140" keyTimes="0;0.35;0.48;0.58;1" keyPoints="0;0;0.7;1;1"/>
+    <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.34;0.35;0.56;0.58;1" dur="6s" repeatCount="indefinite"/>
+  </circle>
+  <circle r="7" fill="#94a3b8">
+    <animateMotion dur="6s" repeatCount="indefinite" path="M170 126 L360 96 L300 146" keyTimes="0;0.62;0.75;0.85;1" keyPoints="0;0;0.7;1;1"/>
+    <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.61;0.62;0.83;0.85;1" dur="6s" repeatCount="indefinite"/>
+  </circle>
+  <text x="250" y="150" fill="#475569" opacity="0">ignored: already set
+    <animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.48;0.5;0.95;1" dur="6s" repeatCount="indefinite"/>
+  </text>
+</svg>

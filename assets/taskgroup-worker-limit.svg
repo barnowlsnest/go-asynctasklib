@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="560" height="160" viewBox="0 0 560 160" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11">
+  <rect width="560" height="160" rx="10" fill="#0f172a"/>
+  <text x="16" y="24" font-size="12" font-weight="700" fill="#e2e8f0">TaskGroup: taskgroup.New(3) runs at most 3 tasks at once</text>
+  <text x="30" y="110" fill="#94a3b8">waiting on Submit</text>
+  <text x="230" y="42" fill="#94a3b8">worker slots (semaphore)</text>
+  <g fill="#1e293b" stroke="#334155" stroke-dasharray="4 3">
+    <rect x="230" y="50" width="70" height="44" rx="6"/>
+    <rect x="320" y="50" width="70" height="44" rx="6"/>
+    <rect x="410" y="50" width="70" height="44" rx="6"/>
+  </g>
+  <g font-size="9" fill="#94a3b8">
+    <rect x="410" y="128" width="10" height="10" fill="#60a5fa"/><text x="424" y="137">queued</text>
+    <rect x="470" y="128" width="10" height="10" fill="#fbbf24"/><text x="484" y="137">running</text>
+    <rect x="470" y="112" width="10" height="10" fill="#4ade80"/><text x="484" y="121">done</text>
+  </g>
+  <g>
+    <animateTransform attributeName="transform" type="translate" values="30,118;30,118;250,57;250,57;30,118" keyTimes="0;0.06;0.12;0.98;1" dur="8s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values="1;1;0;0;1" keyTimes="0;0.36;0.4;0.98;1" dur="8s" repeatCount="indefinite"/>
+    <rect width="30" height="30" rx="5" fill="#60a5fa"><animate attributeName="fill" values="#60a5fa;#60a5fa;#fbbf24;#fbbf24;#4ade80;#4ade80" keyTimes="0;0.11;0.12;0.32;0.33;1" dur="8s" repeatCount="indefinite"/></rect>
+    <text x="15" y="19" text-anchor="middle" fill="#0f172a" font-weight="700">t1</text>
+  </g>
+  <g>
+    <animateTransform attributeName="transform" type="translate" values="70,118;70,118;340,57;340,57;70,118" keyTimes="0;0.06;0.12;0.98;1" dur="8s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values="1;1;0;0;1" keyTimes="0;0.5;0.54;0.98;1" dur="8s" repeatCount="indefinite"/>
+    <rect width="30" height="30" rx="5" fill="#60a5fa"><animate attributeName="fill" values="#60a5fa;#60a5fa;#fbbf24;#fbbf24;#4ade80;#4ade80" keyTimes="0;0.11;0.12;0.46;0.47;1" dur="8s" repeatCount="indefinite"/></rect>
+    <text x="15" y="19" text-anchor="middle" fill="#0f172a" font-weight="700">t2</text>
+  </g>
+  <g>
+    <animateTransform attributeName="transform" type="translate" values="110,118;110,118;430,57;430,57;110,118" keyTimes="0;0.06;0.12;0.98;1" dur="8s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values="1;1;0;0;1" keyTimes="0;0.28;0.32;0.98;1" dur="8s" repeatCount="indefinite"/>
+    <rect width="30" height="30" rx="5" fill="#60a5fa"><animate attributeName="fill" values="#60a5fa;#60a5fa;#fbbf24;#fbbf24;#4ade80;#4ade80" keyTimes="0;0.11;0.12;0.24;0.25;1" dur="8s" repeatCount="indefinite"/></rect>
+    <text x="15" y="19" text-anchor="middle" fill="#0f172a" font-weight="700">t3</text>
+  </g>
+  <g>
+    <animateTransform attributeName="transform" type="translate" values="150,118;150,118;430,57;430,57;150,118" keyTimes="0;0.32;0.38;0.98;1" dur="8s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values="1;1;0;0;1" keyTimes="0;0.74;0.78;0.98;1" dur="8s" repeatCount="indefinite"/>
+    <rect width="30" height="30" rx="5" fill="#60a5fa"><animate attributeName="fill" values="#60a5fa;#60a5fa;#fbbf24;#fbbf24;#4ade80;#4ade80" keyTimes="0;0.37;0.38;0.7;0.71;1" dur="8s" repeatCount="indefinite"/></rect>
+    <text x="15" y="19" text-anchor="middle" fill="#0f172a" font-weight="700">t4</text>
+  </g>
+  <g>
+    <animateTransform attributeName="transform" type="translate" values="190,118;190,118;250,57;250,57;190,118" keyTimes="0;0.4;0.46;0.98;1" dur="8s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values="1;1;0;0;1" keyTimes="0;0.84;0.88;0.98;1" dur="8s" repeatCount="indefinite"/>
+    <rect width="30" height="30" rx="5" fill="#60a5fa"><animate attributeName="fill" values="#60a5fa;#60a5fa;#fbbf24;#fbbf24;#4ade80;#4ade80" keyTimes="0;0.45;0.46;0.8;0.81;1" dur="8s" repeatCount="indefinite"/></rect>
+    <text x="15" y="19" text-anchor="middle" fill="#0f172a" font-weight="700">t5</text>
+  </g>
+  <g>
+    <animateTransform attributeName="transform" type="translate" values="230,118;230,118;340,57;340,57;230,118" keyTimes="0;0.54;0.6;0.98;1" dur="8s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values="1;1;0;0;1" keyTimes="0;0.92;0.96;0.98;1" dur="8s" repeatCount="indefinite"/>
+    <rect width="30" height="30" rx="5" fill="#60a5fa"><animate attributeName="fill" values="#60a5fa;#60a5fa;#fbbf24;#fbbf24;#4ade80;#4ade80" keyTimes="0;0.59;0.6;0.88;0.89;1" dur="8s" repeatCount="indefinite"/></rect>
+    <text x="15" y="19" text-anchor="middle" fill="#0f172a" font-weight="700">t6</text>
+  </g>
+</svg>

@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="560" height="160" viewBox="0 0 560 160" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11">
+  <rect width="560" height="160" rx="10" fill="#0f172a"/>
+  <text x="16" y="24" font-size="12" font-weight="700" fill="#e2e8f0">Jitter: WithJitter(true) picks a random delay in [0, delay]</text>
+  <text x="16" y="58" fill="#94a3b8">no jitter</text>
+  <text x="16" y="118" fill="#94a3b8">with jitter</text>
+  <line x1="110" y1="70" x2="530" y2="70" stroke="#334155"/>
+  <line x1="110" y1="130" x2="530" y2="130" stroke="#334155"/>
+  <line x1="400" y1="40" x2="400" y2="140" stroke="#475569" stroke-dasharray="3 3"/>
+  <text x="404" y="40" fill="#94a3b8">delay</text>
+  <g fill="#f87171">
+    <circle cx="400" cy="40" r="5"><animate attributeName="cy" values="40;40;66;66;40" keyTimes="0;0.1;0.3;0.95;1" dur="5s" repeatCount="indefinite"/></circle>
+    <circle cx="400" cy="40" r="5"><animate attributeName="cy" values="40;40;58;58;40" keyTimes="0;0.1;0.3;0.95;1" dur="5s" repeatCount="indefinite"/></circle>
+    <circle cx="400" cy="40" r="5"><animate attributeName="cy" values="40;40;50;50;40" keyTimes="0;0.1;0.3;0.95;1" dur="5s" repeatCount="indefinite"/></circle>
+    <circle cx="400" cy="40" r="5"><animate attributeName="cy" values="40;40;42;42;40" keyTimes="0;0.1;0.3;0.95;1" dur="5s" repeatCount="indefinite"/></circle>
+  </g>
+  <text x="300" y="62" fill="#f87171" opacity="0" text-anchor="end">thundering herd<animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.3;0.33;0.95;1" dur="5s" repeatCount="indefinite"/></text>
+  <g fill="#4ade80">
+    <circle cx="160" cy="100" r="5" opacity="0"><animate attributeName="cy" values="100;100;126;126;100" keyTimes="0;0.4;0.55;0.95;1" dur="5s" repeatCount="indefinite"/><animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.4;0.42;0.95;1" dur="5s" repeatCount="indefinite"/></circle>
+    <circle cx="245" cy="100" r="5" opacity="0"><animate attributeName="cy" values="100;100;126;126;100" keyTimes="0;0.45;0.6;0.95;1" dur="5s" repeatCount="indefinite"/><animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.45;0.47;0.95;1" dur="5s" repeatCount="indefinite"/></circle>
+    <circle cx="310" cy="100" r="5" opacity="0"><animate attributeName="cy" values="100;100;126;126;100" keyTimes="0;0.5;0.65;0.95;1" dur="5s" repeatCount="indefinite"/><animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.5;0.52;0.95;1" dur="5s" repeatCount="indefinite"/></circle>
+    <circle cx="380" cy="100" r="5" opacity="0"><animate attributeName="cy" values="100;100;126;126;100" keyTimes="0;0.55;0.7;0.95;1" dur="5s" repeatCount="indefinite"/><animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.55;0.57;0.95;1" dur="5s" repeatCount="indefinite"/></circle>
+  </g>
+  <text x="470" y="118" fill="#4ade80" opacity="0">spread out<animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.7;0.73;0.95;1" dur="5s" repeatCount="indefinite"/></text>
+  <text x="110" y="152" fill="#94a3b8">0</text>
+</svg>

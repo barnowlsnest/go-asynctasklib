@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="560" height="160" viewBox="0 0 560 160" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11">
+  <rect width="560" height="160" rx="10" fill="#0f172a"/>
+  <text x="16" y="24" font-size="12" font-weight="700" fill="#e2e8f0">Context-aware execution: the task stops when ctx is done</text>
+  <text x="16" y="62" fill="#94a3b8">ctx deadline</text>
+  <rect x="150" y="52" width="380" height="12" rx="6" fill="#1e293b"/>
+  <rect x="150" y="52" width="0" height="12" rx="6" fill="#fbbf24">
+    <animate attributeName="width" values="0;240;240;0" keyTimes="0;0.5;0.96;1" dur="5s" repeatCount="indefinite"/>
+  </rect>
+  <line x1="390" y1="40" x2="390" y2="120" stroke="#f87171" stroke-width="2" stroke-dasharray="4 3"/>
+  <text x="396" y="44" fill="#f87171">deadline</text>
+  <text x="16" y="102" fill="#94a3b8">t.Go(ctx)</text>
+  <rect x="150" y="92" width="380" height="12" rx="6" fill="none" stroke="#334155" stroke-dasharray="4 3"/>
+  <text x="470" y="88" fill="#475569">work left</text>
+  <rect x="150" y="92" width="0" height="12" rx="6" fill="#60a5fa">
+    <animate attributeName="width" values="0;240;240;0" keyTimes="0;0.5;0.96;1" dur="5s" repeatCount="indefinite"/>
+    <animate attributeName="fill" values="#60a5fa;#60a5fa;#f87171;#f87171" keyTimes="0;0.49;0.51;1" dur="5s" repeatCount="indefinite"/>
+  </rect>
+  <text x="150" y="140" fill="#f87171" opacity="0">ctx.Done() → canceled · Err() wraps ErrCancelledTask
+    <animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.5;0.53;0.94;1" dur="5s" repeatCount="indefinite"/>
+  </text>
+</svg>
