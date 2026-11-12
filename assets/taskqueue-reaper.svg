@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="560" height="160" viewBox="0 0 560 160" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11">
+  <rect width="560" height="160" rx="10" fill="#0f172a"/>
+  <text x="16" y="24" font-size="12" font-weight="700" fill="#e2e8f0">Background reaper: sweeps expired leases every WithReapInterval</text>
+  <text x="20" y="48" fill="#94a3b8">active leases</text>
+  <g fill="#94a3b8" font-size="10"><text x="20" y="72">lease A</text><text x="20" y="98">lease B</text><text x="20" y="124">lease C</text></g>
+  <g fill="#1e293b"><rect x="80" y="64" width="300" height="10" rx="5"/><rect x="80" y="90" width="300" height="10" rx="5"/><rect x="80" y="116" width="300" height="10" rx="5"/></g>
+  <rect x="80" y="64" height="10" rx="5" width="300" fill="#4ade80"><animate attributeName="width" values="300;180;180;300" keyTimes="0;0.95;0.99;1" dur="6s" repeatCount="indefinite"/></rect>
+  <rect x="80" y="90" height="10" rx="5" width="120" fill="#fbbf24">
+    <animate attributeName="width" values="120;0;0;120" keyTimes="0;0.4;0.99;1" dur="6s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values="1;1;0;0;1" keyTimes="0;0.5;0.52;0.99;1" dur="6s" repeatCount="indefinite"/></rect>
+  <rect x="80" y="116" height="10" rx="5" width="240" fill="#4ade80"><animate attributeName="width" values="240;100;100;240" keyTimes="0;0.95;0.99;1" dur="6s" repeatCount="indefinite"/></rect>
+  <text x="80" y="98" fill="#f87171" font-size="10" opacity="0">expired<animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.4;0.42;0.5;0.52;1" dur="6s" repeatCount="indefinite"/></text>
+  <line x1="70" y1="54" x2="70" y2="134" stroke="#c084fc" stroke-width="2">
+    <animate attributeName="x1" values="70;390" dur="1.5s" repeatCount="indefinite"/>
+    <animate attributeName="x2" values="70;390" dur="1.5s" repeatCount="indefinite"/>
+  </line>
+  <rect x="440" y="80" width="100" height="30" rx="8" fill="#1e293b" stroke="#60a5fa"/>
+  <text x="490" y="99" text-anchor="middle" fill="#e2e8f0">queue</text>
+  <g opacity="0"><animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.5;0.51;0.65;0.66;1" dur="6s" repeatCount="indefinite"/>
+    <circle r="7" fill="#fbbf24"><animateMotion dur="6s" repeatCount="indefinite" path="M100 95 H440" keyTimes="0;0.5;0.65;1" keyPoints="0;0;1;1"/></circle></g>
+  <text x="400" y="140" fill="#94a3b8" font-size="10">requeue or dead-letter</text>
+  <text x="400" y="152" fill="#94a3b8" font-size="10">(same policy as Nack)</text>
+</svg>

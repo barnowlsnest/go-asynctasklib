@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="560" height="160" viewBox="0 0 560 160" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11">
+  <rect width="560" height="160" rx="10" fill="#0f172a"/>
+  <text x="16" y="24" font-size="12" font-weight="700" fill="#e2e8f0">State hooks: a callback fires on every lifecycle transition</text>
+  <g fill="none" stroke="#334155" stroke-width="2">
+    <line x1="100" y1="70" x2="130" y2="70"/>
+    <line x1="210" y1="70" x2="240" y2="70"/>
+    <line x1="320" y1="70" x2="350" y2="70"/>
+    <path d="M280 55 V40 H500 V55"/>
+    <path d="M390 85 V105 H170 V85" stroke-dasharray="4 3"/>
+  </g>
+  <text x="280" y="118" text-anchor="middle" fill="#475569">GoRetry: failed → pending</text>
+  <g font-weight="700" text-anchor="middle">
+    <rect x="20" y="55" width="80" height="30" rx="6" fill="#1e293b" stroke="#60a5fa">
+      <animate attributeName="fill" values="#1e293b;#60a5fa;#1e293b;#1e293b" keyTimes="0;0.03;0.1;1" dur="7s" repeatCount="indefinite"/>
+    </rect>
+    <text x="60" y="74" fill="#e2e8f0">created</text>
+    <rect x="130" y="55" width="80" height="30" rx="6" fill="#1e293b" stroke="#94a3b8">
+      <animate attributeName="fill" values="#1e293b;#1e293b;#94a3b8;#1e293b;#1e293b;#94a3b8;#1e293b;#1e293b" keyTimes="0;0.1;0.12;0.18;0.43;0.45;0.51;1" dur="7s" repeatCount="indefinite"/>
+    </rect>
+    <text x="170" y="74" fill="#e2e8f0">pending</text>
+    <rect x="240" y="55" width="80" height="30" rx="6" fill="#1e293b" stroke="#fbbf24">
+      <animate attributeName="fill" values="#1e293b;#1e293b;#fbbf24;#1e293b;#1e293b;#fbbf24;#1e293b;#1e293b" keyTimes="0;0.18;0.2;0.27;0.53;0.55;0.62;1" dur="7s" repeatCount="indefinite"/>
+    </rect>
+    <text x="280" y="74" fill="#e2e8f0">started</text>
+    <rect x="350" y="55" width="80" height="30" rx="6" fill="#1e293b" stroke="#f87171">
+      <animate attributeName="fill" values="#1e293b;#1e293b;#f87171;#1e293b;#1e293b" keyTimes="0;0.28;0.3;0.37;1" dur="7s" repeatCount="indefinite"/>
+    </rect>
+    <text x="390" y="74" fill="#e2e8f0">failed</text>
+    <rect x="460" y="55" width="80" height="30" rx="6" fill="#1e293b" stroke="#4ade80">
+      <animate attributeName="fill" values="#1e293b;#1e293b;#4ade80;#4ade80;#1e293b" keyTimes="0;0.7;0.72;0.95;1" dur="7s" repeatCount="indefinite"/>
+    </rect>
+    <text x="500" y="74" fill="#e2e8f0">done</text>
+  </g>
+  <circle r="6" fill="#e2e8f0">
+    <animateMotion dur="7s" repeatCount="indefinite" calcMode="linear"
+      keyTimes="0;0.05;0.12;0.2;0.3;0.45;0.55;0.72;1" keyPoints="0;0;0.109;0.218;0.327;0.614;0.723;1;1"
+      path="M60 70 H170 H280 H390 V105 H170 V70 H280 V40 H500 V70"/>
+  </circle>
+  <g fill="#c084fc" text-anchor="middle">
+    <text x="280" y="145" opacity="0">→ WhenCreated(id, ts)
+      <animate attributeName="opacity" values="0;1;1;0;0" keyTimes="0;0.02;0.09;0.11;1" dur="7s" repeatCount="indefinite"/>
+    </text>
+    <text x="280" y="145" opacity="0">→ WhenPending(id, ts, attempt)
+      <animate attributeName="opacity" values="0;0;1;1;0;0;1;1;0;0" keyTimes="0;0.11;0.12;0.18;0.19;0.44;0.45;0.53;0.54;1" dur="7s" repeatCount="indefinite"/>
+    </text>
+    <text x="280" y="145" opacity="0">→ WhenStarted(id, ts)
+      <animate attributeName="opacity" values="0;0;1;1;0;0;1;1;0;0" keyTimes="0;0.19;0.2;0.28;0.29;0.54;0.55;0.7;0.71;1" dur="7s" repeatCount="indefinite"/>
+    </text>
+    <text x="280" y="145" opacity="0">→ WhenFailed(id, ts, err)
+      <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.29;0.3;0.43;0.44;1" dur="7s" repeatCount="indefinite"/>
+    </text>
+    <text x="280" y="145" opacity="0">→ WhenDone(id, ts)   (WhenCanceled fires on cancel)
+      <animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.71;0.72;0.95;1" dur="7s" repeatCount="indefinite"/>
+    </text>
+  </g>
+</svg>

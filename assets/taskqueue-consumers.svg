@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="560" height="160" viewBox="0 0 560 160" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11">
+  <rect width="560" height="160" rx="10" fill="#0f172a"/>
+  <text x="16" y="24" font-size="12" font-weight="700" fill="#e2e8f0">Two consumer APIs: Dequeue (one claim per call) or Stream (pipeline)</text>
+  <rect x="20" y="50" width="90" height="90" rx="8" fill="#1e293b" stroke="#c084fc"/>
+  <text x="65" y="100" text-anchor="middle" fill="#e2e8f0" font-weight="700">Queue</text>
+  <text x="140" y="56" fill="#60a5fa" font-weight="700">q.Dequeue(ctx, timeout)</text>
+  <line x1="110" y1="72" x2="420" y2="72" stroke="#334155" stroke-width="2"/>
+  <rect x="420" y="60" width="120" height="24" rx="5" fill="#1e293b" stroke="#60a5fa"/>
+  <text x="480" y="76" text-anchor="middle" fill="#e2e8f0">*Claim</text>
+  <circle r="7" fill="#60a5fa"><animateMotion dur="3s" repeatCount="indefinite" path="M110 72 H420" keyTimes="0;0.4;1" keyPoints="0;1;1"/></circle>
+  <text x="140" y="96" fill="#94a3b8" font-size="10">blocks until a task arrives, then loop: Ack/Nack, call again</text>
+  <text x="140" y="116" fill="#4ade80" font-weight="700">q.Stream(ctx, timeout, buffer)</text>
+  <line x1="110" y1="130" x2="420" y2="130" stroke="#334155" stroke-width="2"/>
+  <rect x="420" y="118" width="120" height="24" rx="5" fill="#1e293b" stroke="#4ade80"/>
+  <text x="480" y="134" text-anchor="middle" fill="#e2e8f0">y.Results()</text>
+  <g fill="#4ade80">
+    <circle r="6"><animateMotion dur="1.5s" repeatCount="indefinite" begin="0s" path="M110 130 H420"/></circle>
+    <circle r="6"><animateMotion dur="1.5s" repeatCount="indefinite" begin="0.5s" path="M110 130 H420"/></circle>
+    <circle r="6"><animateMotion dur="1.5s" repeatCount="indefinite" begin="1s" path="M110 130 H420"/></circle>
+  </g>
+</svg>

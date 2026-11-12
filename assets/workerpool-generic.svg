@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="560" height="160" viewBox="0 0 560 160" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11">
+  <rect width="560" height="160" rx="10" fill="#0f172a"/>
+  <text x="16" y="24" font-size="12" font-weight="700" fill="#e2e8f0">Generic over the job type: WorkerPool[Order] accepts only Order</text>
+  <rect x="300" y="52" width="230" height="56" rx="8" fill="#1e293b" stroke="#c084fc"/>
+  <text x="415" y="74" text-anchor="middle" fill="#e2e8f0" font-weight="700">WorkerPool[Order]</text>
+  <text x="415" y="92" text-anchor="middle" fill="#94a3b8">handler(JobAware[Order])</text>
+  <g font-weight="700" text-anchor="middle">
+    <g><animateTransform attributeName="transform" type="translate" values="20,60;20,60;230,68;230,68;20,60" keyTimes="0;0.05;0.25;0.95;1" dur="6s" repeatCount="indefinite"/>
+      <animate attributeName="opacity" values="1;1;0;0;1" keyTimes="0;0.24;0.26;0.98;1" dur="6s" repeatCount="indefinite"/>
+      <rect width="80" height="22" rx="4" fill="#4ade80"/><text x="40" y="15" fill="#0f172a">Order{1}</text></g>
+    <g><animateTransform attributeName="transform" type="translate" values="20,60;20,60;230,68;230,68;20,60" keyTimes="0;0.3;0.5;0.95;1" dur="6s" repeatCount="indefinite"/>
+      <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.29;0.3;0.49;0.51;1" dur="6s" repeatCount="indefinite"/>
+      <rect width="80" height="22" rx="4" fill="#4ade80"/><text x="40" y="15" fill="#0f172a">Order{2}</text></g>
+    <g><animateTransform attributeName="transform" type="translate" values="20,110;20,110;190,110;190,110;20,110" keyTimes="0;0.55;0.7;0.95;1" dur="6s" repeatCount="indefinite"/>
+      <animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.54;0.55;0.95;1" dur="6s" repeatCount="indefinite"/>
+      <rect width="80" height="22" rx="4" fill="#f87171"/><text x="40" y="15" fill="#0f172a">"text"</text></g>
+  </g>
+  <line x1="285" y1="100" x2="285" y2="140" stroke="#f87171" stroke-width="3" opacity="0">
+    <animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.7;0.71;0.95;1" dur="6s" repeatCount="indefinite"/></line>
+  <text x="300" y="126" fill="#f87171" opacity="0">✗ compile error: cannot use string as Order
+    <animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.7;0.72;0.95;1" dur="6s" repeatCount="indefinite"/></text>
+  <text x="20" y="48" fill="#94a3b8">no interface{}, no boxing, no type asserts in handlers</text>
+</svg>

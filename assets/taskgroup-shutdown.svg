@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="560" height="160" viewBox="0 0 560 160" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11">
+  <rect width="560" height="160" rx="10" fill="#0f172a"/>
+  <text x="16" y="24" font-size="12" font-weight="700" fill="#e2e8f0">Graceful shutdown: Stop() cancels in-progress tasks and rejects new ones</text>
+  <g fill="#94a3b8"><text x="30" y="60">task 1</text><text x="30" y="88">task 2</text></g>
+  <g fill="#1e293b"><rect x="90" y="50" width="260" height="12" rx="6"/><rect x="90" y="78" width="260" height="12" rx="6"/></g>
+  <rect x="90" y="50" height="12" rx="6" fill="#fbbf24" width="0">
+    <animate attributeName="width" values="0;140;140;0" keyTimes="0;0.4;0.95;1" dur="6s" repeatCount="indefinite"/>
+    <animate attributeName="fill" values="#fbbf24;#fbbf24;#475569;#475569" keyTimes="0;0.4;0.42;1" dur="6s" repeatCount="indefinite"/>
+  </rect>
+  <rect x="90" y="78" height="12" rx="6" fill="#fbbf24" width="0">
+    <animate attributeName="width" values="0;100;100;0" keyTimes="0;0.4;0.95;1" dur="6s" repeatCount="indefinite"/>
+    <animate attributeName="fill" values="#fbbf24;#fbbf24;#475569;#475569" keyTimes="0;0.4;0.42;1" dur="6s" repeatCount="indefinite"/>
+  </rect>
+  <line x1="240" y1="40" x2="240" y2="100" stroke="#f87171" stroke-width="2" opacity="0">
+    <animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.39;0.4;0.95;1" dur="6s" repeatCount="indefinite"/>
+  </line>
+  <text x="246" y="44" fill="#f87171" font-weight="700" opacity="0">Stop()
+    <animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.39;0.4;0.95;1" dur="6s" repeatCount="indefinite"/>
+  </text>
+  <g fill="#94a3b8" opacity="0">
+    <animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.42;0.45;0.95;1" dur="6s" repeatCount="indefinite"/>
+    <text x="360" y="60">Cancel() → canceled</text>
+    <text x="360" y="88">Cancel() → canceled</text>
+  </g>
+  <text x="30" y="124" fill="#94a3b8">IsStopped()</text>
+  <text x="120" y="124" fill="#475569" font-weight="700">false<animate attributeName="opacity" values="1;1;0;0;1" keyTimes="0;0.4;0.41;0.98;1" dur="6s" repeatCount="indefinite"/></text>
+  <text x="120" y="124" fill="#f87171" font-weight="700" opacity="0">true<animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.4;0.41;0.98;1" dur="6s" repeatCount="indefinite"/></text>
+  <g>
+    <animateTransform attributeName="transform" type="translate" values="540,130;540,130;330,130;350,130;350,130;540,130" keyTimes="0;0.55;0.68;0.72;0.95;1" dur="6s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.55;0.57;0.95;1" dur="6s" repeatCount="indefinite"/>
+    <rect x="-80" y="-12" width="80" height="18" rx="4" fill="#60a5fa"/>
+    <text x="-40" y="1" text-anchor="middle" fill="#0f172a" font-weight="700">Submit()</text>
+  </g>
+  <text x="360" y="134" fill="#f87171" opacity="0">✗ ErrTaskGroupStopped
+    <animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.7;0.72;0.95;1" dur="6s" repeatCount="indefinite"/>
+  </text>
+</svg>

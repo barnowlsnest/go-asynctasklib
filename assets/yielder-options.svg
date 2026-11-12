@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="560" height="160" viewBox="0 0 560 160" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11">
+  <rect width="560" height="160" rx="10" fill="#0f172a"/>
+  <text x="16" y="24" font-size="12" font-weight="700" fill="#e2e8f0">Functional options: yielder.New(ctx, opts...) wires it up</text>
+  <g font-weight="700" text-anchor="middle">
+    <g opacity="0"><animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.05;0.08;0.95;1" dur="6s" repeatCount="indefinite"/>
+      <rect x="20" y="40" width="170" height="22" rx="4" fill="#60a5fa"/><text x="105" y="55" fill="#0f172a">WithValues(v)</text></g>
+    <g opacity="0"><animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.15;0.18;0.95;1" dur="6s" repeatCount="indefinite"/>
+      <rect x="20" y="70" width="170" height="22" rx="4" fill="#fbbf24"/><text x="105" y="85" fill="#0f172a">WithTimeout(2s)</text></g>
+    <g opacity="0"><animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.25;0.28;0.95;1" dur="6s" repeatCount="indefinite"/>
+      <rect x="20" y="100" width="170" height="22" rx="4" fill="#4ade80"/><text x="105" y="115" fill="#0f172a">WithBuffer(3)</text></g>
+  </g>
+  <line x1="190" y1="82" x2="230" y2="82" stroke="#334155" stroke-width="2"/>
+  <rect x="230" y="56" width="110" height="52" rx="8" fill="#1e293b" stroke="#c084fc"/>
+  <text x="285" y="78" text-anchor="middle" fill="#e2e8f0" font-weight="700">Yielder</text>
+  <text x="285" y="96" text-anchor="middle" fill="#fbbf24" opacity="0">⏱ 2s<animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.2;0.22;0.95;1" dur="6s" repeatCount="indefinite"/></text>
+  <text x="440" y="56" text-anchor="middle" fill="#94a3b8">buffered chan (cap 3)</text>
+  <g fill="#1e293b" stroke="#334155">
+    <rect x="370" y="66" width="40" height="32" rx="4"/><rect x="420" y="66" width="40" height="32" rx="4"/><rect x="470" y="66" width="40" height="32" rx="4"/>
+  </g>
+  <g fill="#60a5fa">
+    <rect x="374" y="70" width="32" height="24" rx="3" opacity="0"><animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.4;0.42;0.95;1" dur="6s" repeatCount="indefinite"/></rect>
+    <rect x="424" y="70" width="32" height="24" rx="3" opacity="0"><animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.5;0.52;0.95;1" dur="6s" repeatCount="indefinite"/></rect>
+    <rect x="474" y="70" width="32" height="24" rx="3" opacity="0"><animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.6;0.62;0.95;1" dur="6s" repeatCount="indefinite"/></rect>
+  </g>
+  <text x="440" y="120" text-anchor="middle" fill="#94a3b8" opacity="0">producer runs ahead by up to 3 values<animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.65;0.68;0.95;1" dur="6s" repeatCount="indefinite"/></text>
+  <text x="20" y="146" fill="#94a3b8">defaults: timeout 1s · buffer 1 · a source option is required</text>
+</svg>

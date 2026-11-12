@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="560" height="160" viewBox="0 0 560 160" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11">
+  <rect width="560" height="160" rx="10" fill="#0f172a"/>
+  <text x="16" y="24" font-size="12" font-weight="700" fill="#e2e8f0">Two shutdown modes: cancel now, or drain the backlog first</text>
+  <text x="16" y="58" fill="#f87171" font-weight="700">Shutdown()</text>
+  <text x="16" y="108" fill="#4ade80" font-weight="700">GracefulShutdown()</text>
+  <g fill="#94a3b8" font-size="10"><text x="170" y="40">backlog</text><text x="400" y="40">in-flight</text></g>
+  <g fill="#1e293b" stroke="#334155"><rect x="160" y="44" width="150" height="24" rx="5"/><rect x="390" y="44" width="140" height="24" rx="5"/>
+    <rect x="160" y="94" width="150" height="24" rx="5"/><rect x="390" y="94" width="140" height="24" rx="5"/></g>
+  <g fill="#60a5fa">
+    <circle cx="190" cy="56" r="7"><animate attributeName="fill" values="#60a5fa;#60a5fa;#475569;#475569" keyTimes="0;0.2;0.25;1" dur="7s" repeatCount="indefinite"/></circle>
+    <circle cx="220" cy="56" r="7"><animate attributeName="fill" values="#60a5fa;#60a5fa;#475569;#475569" keyTimes="0;0.2;0.25;1" dur="7s" repeatCount="indefinite"/></circle>
+    <circle cx="250" cy="56" r="7"><animate attributeName="fill" values="#60a5fa;#60a5fa;#475569;#475569" keyTimes="0;0.2;0.25;1" dur="7s" repeatCount="indefinite"/></circle>
+  </g>
+  <circle cx="460" cy="56" r="7" fill="#fbbf24"><animate attributeName="fill" values="#fbbf24;#fbbf24;#f87171;#f87171" keyTimes="0;0.2;0.25;1" dur="7s" repeatCount="indefinite"/></circle>
+  <text x="320" y="61" fill="#f87171" font-size="10" opacity="0">dropped · ctx canceled<animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.25;0.28;0.95;1" dur="7s" repeatCount="indefinite"/></text>
+  <circle cx="460" cy="106" r="7" fill="#fbbf24"><animate attributeName="fill" values="#fbbf24;#fbbf24;#4ade80;#4ade80" keyTimes="0;0.2;0.22;1" dur="7s" repeatCount="indefinite"/></circle>
+  <g><animateTransform attributeName="transform" type="translate" values="0,0;0,0;270,0;270,0" keyTimes="0;0.22;0.32;1" dur="7s" repeatCount="indefinite"/>
+    <circle cx="190" cy="106" r="7" fill="#60a5fa"><animate attributeName="fill" values="#60a5fa;#60a5fa;#4ade80;#4ade80;#60a5fa" keyTimes="0;0.38;0.4;0.97;1" dur="7s" repeatCount="indefinite"/></circle></g>
+  <g><animateTransform attributeName="transform" type="translate" values="0,0;0,0;240,0;240,0" keyTimes="0;0.4;0.5;1" dur="7s" repeatCount="indefinite"/>
+    <circle cx="220" cy="106" r="7" fill="#60a5fa"><animate attributeName="fill" values="#60a5fa;#60a5fa;#4ade80;#4ade80;#60a5fa" keyTimes="0;0.56;0.58;0.97;1" dur="7s" repeatCount="indefinite"/></circle></g>
+  <g><animateTransform attributeName="transform" type="translate" values="0,0;0,0;210,0;210,0" keyTimes="0;0.58;0.68;1" dur="7s" repeatCount="indefinite"/>
+    <circle cx="250" cy="106" r="7" fill="#60a5fa"><animate attributeName="fill" values="#60a5fa;#60a5fa;#4ade80;#4ade80;#60a5fa" keyTimes="0;0.74;0.76;0.97;1" dur="7s" repeatCount="indefinite"/></circle></g>
+  <text x="16" y="146" fill="#94a3b8" opacity="0">both are idempotent · a later Submit() returns <tspan fill="#f87171">ErrPoolShutdown</tspan>
+    <animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.78;0.8;0.95;1" dur="7s" repeatCount="indefinite"/></text>
+</svg>

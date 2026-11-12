@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="560" height="160" viewBox="0 0 560 160" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11">
+  <rect width="560" height="160" rx="10" fill="#0f172a"/>
+  <text x="16" y="24" font-size="12" font-weight="700" fill="#e2e8f0">Automatic retries: WithMaxRetries(3), failed attempts are retried</text>
+  <line x1="40" y1="110" x2="530" y2="110" stroke="#334155"/>
+  <g>
+    <rect x="50" y="70" width="100" height="30" rx="6" fill="#60a5fa" opacity="0">
+      <animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.04;0.06;0.95;1" dur="6s" repeatCount="indefinite"/>
+      <animate attributeName="fill" values="#60a5fa;#60a5fa;#f87171;#f87171" keyTimes="0;0.2;0.22;1" dur="6s" repeatCount="indefinite"/>
+    </rect>
+    <text x="100" y="89" text-anchor="middle" fill="#0f172a" font-weight="700" opacity="0">attempt 1
+      <animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.04;0.06;0.95;1" dur="6s" repeatCount="indefinite"/>
+    </text>
+    <text x="100" y="128" text-anchor="middle" fill="#f87171" opacity="0">✗ error
+      <animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.2;0.22;0.95;1" dur="6s" repeatCount="indefinite"/>
+    </text>
+  </g>
+  <text x="182" y="89" text-anchor="middle" fill="#94a3b8" opacity="0">⏱ delay
+    <animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.22;0.24;0.95;1" dur="6s" repeatCount="indefinite"/>
+  </text>
+  <g>
+    <rect x="215" y="70" width="100" height="30" rx="6" fill="#60a5fa" opacity="0">
+      <animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.36;0.38;0.95;1" dur="6s" repeatCount="indefinite"/>
+      <animate attributeName="fill" values="#60a5fa;#60a5fa;#f87171;#f87171" keyTimes="0;0.52;0.54;1" dur="6s" repeatCount="indefinite"/>
+    </rect>
+    <text x="265" y="89" text-anchor="middle" fill="#0f172a" font-weight="700" opacity="0">attempt 2
+      <animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.36;0.38;0.95;1" dur="6s" repeatCount="indefinite"/>
+    </text>
+    <text x="265" y="128" text-anchor="middle" fill="#f87171" opacity="0">✗ error
+      <animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.52;0.54;0.95;1" dur="6s" repeatCount="indefinite"/>
+    </text>
+  </g>
+  <text x="347" y="89" text-anchor="middle" fill="#94a3b8" opacity="0">⏱ delay
+    <animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.54;0.56;0.95;1" dur="6s" repeatCount="indefinite"/>
+  </text>
+  <g>
+    <rect x="380" y="70" width="100" height="30" rx="6" fill="#60a5fa" opacity="0">
+      <animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.68;0.7;0.95;1" dur="6s" repeatCount="indefinite"/>
+      <animate attributeName="fill" values="#60a5fa;#60a5fa;#4ade80;#4ade80" keyTimes="0;0.82;0.84;1" dur="6s" repeatCount="indefinite"/>
+    </rect>
+    <text x="430" y="89" text-anchor="middle" fill="#0f172a" font-weight="700" opacity="0">attempt 3
+      <animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.68;0.7;0.95;1" dur="6s" repeatCount="indefinite"/>
+    </text>
+    <text x="430" y="128" text-anchor="middle" fill="#4ade80" opacity="0">✓ done
+      <animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.82;0.84;0.95;1" dur="6s" repeatCount="indefinite"/>
+    </text>
+  </g>
+  <text x="16" y="50" fill="#94a3b8">the attempts counter goes up on every retry; the delay comes from RetryDelay or a retry.Strategy</text>
+</svg>

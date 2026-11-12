@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="560" height="160" viewBox="0 0 560 160" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11">
+  <rect width="560" height="160" rx="10" fill="#0f172a"/>
+  <text x="16" y="24" font-size="12" font-weight="700" fill="#e2e8f0">Lobby: a bounded staging buffer with drain-on-close handoff</text>
+  <text x="20" y="64" fill="#60a5fa" font-weight="700">SubmitTask</text>
+  <text x="20" y="78" fill="#94a3b8" font-size="10">PushTasks(yielder)</text>
+  <text x="170" y="46" fill="#94a3b8">NewLobby(3, closeTimeout)</text>
+  <rect x="160" y="52" width="200" height="40" rx="8" fill="#1e293b" stroke="#c084fc"/>
+  <g fill="#1e293b" stroke="#334155"><rect x="172" y="58" width="52" height="28" rx="4"/><rect x="234" y="58" width="52" height="28" rx="4"/><rect x="296" y="58" width="52" height="28" rx="4"/></g>
+  <g fill="#60a5fa">
+    <rect x="176" y="62" width="44" height="20" rx="3" opacity="0"><animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.05;0.06;0.7;0.75;1" dur="9s" repeatCount="indefinite"/></rect>
+    <rect x="238" y="62" width="44" height="20" rx="3" opacity="0"><animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.12;0.13;0.7;0.75;1" dur="9s" repeatCount="indefinite"/></rect>
+    <rect x="300" y="62" width="44" height="20" rx="3" opacity="0"><animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.19;0.2;0.38;0.39;1" dur="9s" repeatCount="indefinite"/></rect>
+  </g>
+  <text x="20" y="114" fill="#f87171" font-size="10" opacity="0">4th submit waits its timeout → ErrLobbyFull<animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.22;0.24;0.34;0.36;1" dur="9s" repeatCount="indefinite"/></text>
+  <text x="380" y="64" fill="#4ade80" font-weight="700">RetrieveTask</text>
+  <text x="380" y="78" fill="#94a3b8" font-size="10">FetchTasks(n) → yielder</text>
+  <circle r="7" fill="#4ade80" opacity="0"><animateMotion dur="9s" repeatCount="indefinite" path="M348 72 H520" keyTimes="0;0.39;0.45;1" keyPoints="0;0;1;1"/>
+    <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.38;0.39;0.45;0.46;1" dur="9s" repeatCount="indefinite"/></circle>
+  <text x="160" y="114" fill="#c084fc" font-weight="700" opacity="0">CloseContext(ctx)<animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.6;0.62;0.95;1" dur="9s" repeatCount="indefinite"/></text>
+  <rect x="380" y="100" width="160" height="36" rx="8" fill="#1e293b" stroke="#fbbf24"/>
+  <text x="460" y="116" text-anchor="middle" fill="#fbbf24">HandoffTasks()</text>
+  <text x="460" y="130" text-anchor="middle" fill="#94a3b8" font-size="10">nothing dropped</text>
+  <g fill="#fbbf24">
+    <circle r="6" opacity="0"><animateMotion dur="9s" repeatCount="indefinite" path="M198 86 Q300 130 380 118" keyTimes="0;0.68;0.76;1" keyPoints="0;0;1;1"/>
+      <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.67;0.68;0.76;0.77;1" dur="9s" repeatCount="indefinite"/></circle>
+    <circle r="6" opacity="0"><animateMotion dur="9s" repeatCount="indefinite" path="M260 86 Q320 130 380 118" keyTimes="0;0.7;0.78;1" keyPoints="0;0;1;1"/>
+      <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.69;0.7;0.78;0.79;1" dur="9s" repeatCount="indefinite"/></circle>  </g>
+  <text x="20" y="150" fill="#94a3b8" font-size="10">standalone: it does not import the Queue, and you decide where the handoff goes</text>
+</svg>

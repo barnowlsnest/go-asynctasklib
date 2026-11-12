@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="560" height="160" viewBox="0 0 560 160" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11">
+  <rect width="560" height="160" rx="10" fill="#0f172a"/>
+  <text x="16" y="24" font-size="12" font-weight="700" fill="#e2e8f0">Exponential backoff: Delay(attempt) = baseDelay × 2^attempt, capped</text>
+  <text x="16" y="42" fill="#94a3b8">baseDelay = 100ms · maxDelay = 1s</text>
+  <line x1="90" y1="140" x2="440" y2="140" stroke="#334155"/>
+  <line x1="90" y1="56" x2="440" y2="56" stroke="#f87171" stroke-dasharray="5 4"/>
+  <text x="446" y="60" fill="#f87171">maxDelay</text>
+  <rect x="380" y="34" width="44" height="22" fill="none" stroke="#475569" stroke-dasharray="3 3" opacity="0">
+    <animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.72;0.74;0.95;1" dur="6s" repeatCount="indefinite"/>
+  </rect>
+  <g fill="#c084fc">
+    <rect x="100" y="140" width="44" height="0"><animate attributeName="height" values="0;0;8;8;0" keyTimes="0;0.05;0.12;0.95;1" dur="6s" repeatCount="indefinite"/><animate attributeName="y" values="140;140;132;132;140" keyTimes="0;0.05;0.12;0.95;1" dur="6s" repeatCount="indefinite"/></rect>
+    <rect x="170" y="140" width="44" height="0"><animate attributeName="height" values="0;0;17;17;0" keyTimes="0;0.2;0.27;0.95;1" dur="6s" repeatCount="indefinite"/><animate attributeName="y" values="140;140;123;123;140" keyTimes="0;0.2;0.27;0.95;1" dur="6s" repeatCount="indefinite"/></rect>
+    <rect x="240" y="140" width="44" height="0"><animate attributeName="height" values="0;0;34;34;0" keyTimes="0;0.35;0.42;0.95;1" dur="6s" repeatCount="indefinite"/><animate attributeName="y" values="140;140;106;106;140" keyTimes="0;0.35;0.42;0.95;1" dur="6s" repeatCount="indefinite"/></rect>
+    <rect x="310" y="140" width="44" height="0"><animate attributeName="height" values="0;0;67;67;0" keyTimes="0;0.5;0.57;0.95;1" dur="6s" repeatCount="indefinite"/><animate attributeName="y" values="140;140;73;73;140" keyTimes="0;0.5;0.57;0.95;1" dur="6s" repeatCount="indefinite"/></rect>
+    <rect x="380" y="140" width="44" height="0"><animate attributeName="height" values="0;0;84;84;0" keyTimes="0;0.65;0.72;0.95;1" dur="6s" repeatCount="indefinite"/><animate attributeName="y" values="140;140;56;56;140" keyTimes="0;0.65;0.72;0.95;1" dur="6s" repeatCount="indefinite"/><animate attributeName="fill" values="#c084fc;#c084fc;#f87171;#f87171" keyTimes="0;0.71;0.72;1" dur="6s" repeatCount="indefinite"/></rect>
+  </g>
+  <g fill="#e2e8f0" text-anchor="middle">
+    <text x="122" y="127" opacity="0">100ms<animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.12;0.14;0.95;1" dur="6s" repeatCount="indefinite"/></text>
+    <text x="192" y="118" opacity="0">200ms<animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.27;0.29;0.95;1" dur="6s" repeatCount="indefinite"/></text>
+    <text x="262" y="101" opacity="0">400ms<animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.42;0.44;0.95;1" dur="6s" repeatCount="indefinite"/></text>
+    <text x="332" y="68" opacity="0">800ms<animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.57;0.59;0.95;1" dur="6s" repeatCount="indefinite"/></text>
+    <text x="402" y="50" opacity="0" fill="#f87171">1s (was 1.6s)<animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.74;0.76;0.95;1" dur="6s" repeatCount="indefinite"/></text>
+  </g>
+  <g fill="#94a3b8" text-anchor="middle" font-size="10">
+    <text x="122" y="153">attempt 0</text><text x="192" y="153">1</text><text x="262" y="153">2</text><text x="332" y="153">3</text><text x="402" y="153">4</text>
+  </g>
+</svg>

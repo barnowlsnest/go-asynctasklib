@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="560" height="160" viewBox="0 0 560 160" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11">
+  <rect width="560" height="160" rx="10" fill="#0f172a"/>
+  <text x="16" y="24" font-size="12" font-weight="700" fill="#e2e8f0">Composed context: the handler stops when either ctx is canceled</text>
+  <g fill="#94a3b8"><text x="16" y="56">pool ctx</text><text x="16" y="84">Submit ctx</text><text x="16" y="120">JobAware ctx</text></g>
+  <g fill="#1e293b"><rect x="130" y="46" width="400" height="12" rx="6"/><rect x="130" y="74" width="400" height="12" rx="6"/><rect x="130" y="110" width="400" height="12" rx="6"/></g>
+  <rect x="130" y="46" width="0" height="12" rx="6" fill="#60a5fa"><animate attributeName="width" values="0;180;180;0" keyTimes="0;0.5;0.95;1" dur="6s" repeatCount="indefinite"/></rect>
+  <rect x="490" y="44" width="2" height="16" fill="#475569"/>
+  <text x="496" y="56" fill="#475569">later</text>
+  <rect x="130" y="74" width="0" height="12" rx="6" fill="#c084fc"><animate attributeName="width" values="0;180;180;0" keyTimes="0;0.5;0.95;1" dur="6s" repeatCount="indefinite"/></rect>
+  <rect x="130" y="110" width="0" height="12" rx="6" fill="#fbbf24">
+    <animate attributeName="width" values="0;180;180;0" keyTimes="0;0.5;0.95;1" dur="6s" repeatCount="indefinite"/>
+    <animate attributeName="fill" values="#fbbf24;#fbbf24;#f87171;#f87171" keyTimes="0;0.49;0.51;1" dur="6s" repeatCount="indefinite"/>
+  </rect>
+  <line x1="310" y1="68" x2="310" y2="128" stroke="#f87171" stroke-width="2" stroke-dasharray="3 3" opacity="0">
+    <animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.5;0.51;0.95;1" dur="6s" repeatCount="indefinite"/></line>
+  <text x="316" y="84" fill="#f87171" opacity="0">cancel()<animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.5;0.51;0.95;1" dur="6s" repeatCount="indefinite"/></text>
+  <text x="316" y="120" fill="#f87171" opacity="0">Done(): handler returns<animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.52;0.54;0.95;1" dur="6s" repeatCount="indefinite"/></text>
+  <text x="16" y="148" fill="#94a3b8">the pool's lifecycle ctx and the caller's ctx are merged; the first to finish wins</text>
+</svg>

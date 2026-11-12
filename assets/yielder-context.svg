@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="560" height="160" viewBox="0 0 560 160" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11">
+  <rect width="560" height="160" rx="10" fill="#0f172a"/>
+  <text x="16" y="24" font-size="12" font-weight="700" fill="#e2e8f0">Context-aware: canceling ctx stops emission mid-stream</text>
+  <rect x="30" y="60" width="130" height="50" rx="8" fill="#1e293b" stroke="#c084fc"/>
+  <text x="95" y="82" text-anchor="middle" fill="#e2e8f0" font-weight="700">Yielder</text>
+  <text x="95" y="98" text-anchor="middle" fill="#94a3b8">[1 2 3 4]</text>
+  <rect x="160" y="76" width="240" height="18" fill="#1e293b" stroke="#334155"/>
+  <rect x="400" y="60" width="130" height="50" rx="8" fill="#1e293b" stroke="#4ade80"/>
+  <text x="465" y="90" text-anchor="middle" fill="#e2e8f0" font-weight="700">consumer</text>
+  <g font-weight="700" text-anchor="middle">
+    <g><animateTransform attributeName="transform" type="translate" values="170,85;170,85;390,85;390,85" keyTimes="0;0.05;0.2;1" dur="6s" repeatCount="indefinite"/>
+      <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.04;0.05;0.2;0.22;1" dur="6s" repeatCount="indefinite"/>
+      <circle r="8" fill="#60a5fa"/><text y="4" fill="#0f172a">1</text></g>
+    <g><animateTransform attributeName="transform" type="translate" values="170,85;170,85;390,85;390,85" keyTimes="0;0.2;0.35;1" dur="6s" repeatCount="indefinite"/>
+      <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.19;0.2;0.35;0.37;1" dur="6s" repeatCount="indefinite"/>
+      <circle r="8" fill="#60a5fa"/><text y="4" fill="#0f172a">2</text></g>
+  </g>
+  <g opacity="0">
+    <animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.4;0.42;0.95;1" dur="6s" repeatCount="indefinite"/>
+    <text x="95" y="48" text-anchor="middle" fill="#f87171" font-weight="700">cancel()</text>
+    <line x1="160" y1="70" x2="160" y2="100" stroke="#f87171" stroke-width="3"/>
+    <text x="95" y="130" text-anchor="middle" fill="#475569">3, 4 never sent</text>
+    <text x="465" y="130" text-anchor="middle" fill="#f87171">Err() = ErrStopped</text>
+    <text x="280" y="130" text-anchor="middle" fill="#94a3b8">channel closed</text>
+  </g>
+</svg>

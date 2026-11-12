@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="560" height="160" viewBox="0 0 560 160" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11">
+  <rect width="560" height="160" rx="10" fill="#0f172a"/>
+  <text x="16" y="24" font-size="12" font-weight="700" fill="#e2e8f0">Priority or FIFO: the same input, two dequeue orders</text>
+  <text x="20" y="48" fill="#94a3b8">enqueued (Seq →)</text>
+  <g font-weight="700" text-anchor="middle" font-size="10">
+    <rect x="20" y="56" width="40" height="22" rx="4" fill="#475569"/><text x="40" y="71" fill="#e2e8f0">A·lo</text>
+    <rect x="66" y="56" width="40" height="22" rx="4" fill="#f87171"/><text x="86" y="71" fill="#0f172a">B·hi</text>
+    <rect x="112" y="56" width="40" height="22" rx="4" fill="#60a5fa"/><text x="132" y="71" fill="#0f172a">C·nm</text>
+    <rect x="158" y="56" width="40" height="22" rx="4" fill="#f87171"/><text x="178" y="71" fill="#0f172a">D·hi</text>
+  </g>
+  <text x="240" y="62" fill="#c084fc" font-weight="700">ModePriority</text>
+  <text x="240" y="118" fill="#fbbf24" font-weight="700">ModeFIFO</text>
+  <g fill="#1e293b" stroke="#334155">
+    <rect x="340" y="48" width="200" height="26" rx="5"/><rect x="340" y="104" width="200" height="26" rx="5"/>
+  </g>
+  <g font-weight="700" text-anchor="middle" font-size="10">
+    <g opacity="0"><animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.1;0.12;0.95;1" dur="6s" repeatCount="indefinite"/>
+      <rect x="346" y="51" width="40" height="20" rx="4" fill="#f87171"/><text x="366" y="65" fill="#0f172a">B</text>
+      <rect x="346" y="107" width="40" height="20" rx="4" fill="#475569"/><text x="366" y="121" fill="#e2e8f0">A</text></g>
+    <g opacity="0"><animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.3;0.32;0.95;1" dur="6s" repeatCount="indefinite"/>
+      <rect x="394" y="51" width="40" height="20" rx="4" fill="#f87171"/><text x="414" y="65" fill="#0f172a">D</text>
+      <rect x="394" y="107" width="40" height="20" rx="4" fill="#f87171"/><text x="414" y="121" fill="#0f172a">B</text></g>
+    <g opacity="0"><animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.5;0.52;0.95;1" dur="6s" repeatCount="indefinite"/>
+      <rect x="442" y="51" width="40" height="20" rx="4" fill="#60a5fa"/><text x="462" y="65" fill="#0f172a">C</text>
+      <rect x="442" y="107" width="40" height="20" rx="4" fill="#60a5fa"/><text x="462" y="121" fill="#0f172a">C</text></g>
+    <g opacity="0"><animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.7;0.72;0.95;1" dur="6s" repeatCount="indefinite"/>
+      <rect x="490" y="51" width="40" height="20" rx="4" fill="#475569"/><text x="510" y="65" fill="#e2e8f0">A</text>
+      <rect x="490" y="107" width="40" height="20" rx="4" fill="#f87171"/><text x="510" y="121" fill="#0f172a">D</text></g>
+  </g>
+  <text x="340" y="90" fill="#94a3b8" font-size="10">Priority desc, ties by Seq (B before D)</text>
+  <text x="340" y="146" fill="#94a3b8" font-size="10">strict Seq; priority ignored</text>
+</svg>
