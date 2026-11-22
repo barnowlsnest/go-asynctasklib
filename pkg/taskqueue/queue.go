@@ -23,6 +23,7 @@ const (
 type Queue struct {
 	backend      Backend
 	deadLetter   DeadLetter
+	mover        LeaseMover
 	events       QueueEvents
 	maxAttempts  int
 	mode         Mode
@@ -106,6 +107,9 @@ func New(ctx context.Context, opts ...Option) (*Queue, error) {
 	if queue.deadLetter == nil {
 		queue.deadLetter = NewMemoryDeadLetter()
 	}
+	if mover, ok := queue.deadLetter.(LeaseMover); ok && mover.MovesFrom(queue.backend) {
+		queue.mover = mover
+	}
 	if queue.maxAttempts <= 0 {
 		queue.maxAttempts = defaultMaxAttempts
 	}
@@ -158,6 +162,9 @@ func (q *Queue) sweep(ctx context.Context) {
 func (q *Queue) route(ctx context.Context, lease Lease, reason error) error {
 	if lease.Attempt() >= q.maxAttempts {
 		q.events.OnDeadLetter(lease.Task(), reason)
+		if q.mover != nil {
+			return q.mover.MoveLease(ctx, lease, reason)
+		}
 		if err := q.deadLetter.Add(ctx, lease.Task(), reason); err != nil {
 			return err
 		}
