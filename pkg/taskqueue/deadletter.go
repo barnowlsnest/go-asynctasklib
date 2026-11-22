@@ -24,6 +24,22 @@ type DeadLetter interface {
 	Len(ctx context.Context) (int, error)
 }
 
+// LeaseMover is an optional DeadLetter extension that dead-letters a lease in
+// one atomic step. When the DeadLetter given to New implements LeaseMover and
+// MovesFrom reports true for the Queue's Backend, the Queue calls MoveLease
+// instead of Add followed by Backend.Nack(token, false). Because the move is
+// scoped to the lease token, a settler holding a stale lease cannot
+// dead-letter a task that has since been redriven, and a failure cannot leave
+// a task both dead-lettered and still in the backend.
+type LeaseMover interface {
+	// MovesFrom reports whether MoveLease can remove leases issued by backend.
+	MovesFrom(backend Backend) bool
+	// MoveLease atomically removes the task holding lease's token from the
+	// backend and stores it with reason. It returns ErrLeaseNotFound, storing
+	// nothing, when no task holds the token.
+	MoveLease(ctx context.Context, lease Lease, reason error) error
+}
+
 // MemoryDeadLetter is the default in-memory DeadLetter, keyed by task ID.
 type MemoryDeadLetter struct {
 	mu    sync.Mutex

@@ -940,7 +940,7 @@ embed it and override only the hooks they care about.
 
 - `WithBackend(b Backend)` — custom ordered-storage backend (defaults to in-memory). When set, `WithMode` is ignored — ordering belongs to the backend
 - `WithMode(m Mode)` — `ModePriority` or `ModeFIFO` for the default in-memory backend
-- `WithDeadLetter(dl DeadLetter)` — custom dead-letter store (defaults to in-memory)
+- `WithDeadLetter(dl DeadLetter)` — custom dead-letter store (defaults to in-memory). If `dl` also implements `LeaseMover` and `MovesFrom` reports true for the queue's backend, exhausted leases are dead-lettered with one atomic `MoveLease` instead of `Add` followed by `Backend.Nack(token, false)`
 - `WithMaxAttempts(n int)` — deliveries allowed before a task is dead-lettered (default 3)
 - `WithVisibilityTimeout(d time.Duration)` — how long a claimed task stays invisible before its lease expires (default 30s)
 - `WithReapInterval(d time.Duration)` — how often expired leases are swept (default 5s)
@@ -1008,6 +1008,14 @@ type DeadLetter interface {
     List(ctx context.Context, limit int) ([]DeadTask, error)
     Remove(ctx context.Context, id uint64) error
     Len(ctx context.Context) (int, error)
+}
+
+// Optional DeadLetter extension. MoveLease atomically removes the task holding
+// the lease's token from the backend and stores it, returning ErrLeaseNotFound
+// (storing nothing) when no task holds the token.
+type LeaseMover interface {
+    MovesFrom(backend Backend) bool
+    MoveLease(ctx context.Context, lease Lease, reason error) error
 }
 
 type Lease interface {
